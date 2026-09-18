@@ -5,9 +5,10 @@ A keyboard-first terminal workspace for querying BigQuery across projects, built
 ## Run
 
 ```sh
-gcloud auth application-default login
 go run ./cmd/bigtui
 ```
+
+On startup, bigtui checks for Google Application Default Credentials. If none are available, it automatically starts the interactive `gcloud auth application-default login` flow before opening the TUI. The `gcloud` CLI must be installed and available on `PATH`.
 
 The first screen uses two example projects. Press `a` to add a project, `tab` to switch focus, `ctrl+enter` to run a query, and `?` to open the keymap.
 
