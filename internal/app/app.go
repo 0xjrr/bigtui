@@ -681,7 +681,9 @@ func (m model) infoLines() []string {
 			details = []string{"Project  " + m.projects[m.active].ID, "Dataset  " + dataset.Name, "Type     " + child.Kind}
 			if len(child.ViewQuery) > 0 {
 				details = append(details, "", "Query")
-				details = append(details, "  "+child.ViewQuery)
+			for _, line := range wrapText(child.ViewQuery, max(20, m.width-10)) {
+				details = append(details, "  "+line)
+			}
 			}
 			if len(child.ExternalSource) > 0 {
 				details = append(details, "", "External source")
@@ -720,6 +722,25 @@ func formatPreview(columns []string, rows [][]string, width int) []string {
 	lines := []string{"  " + previewRow(columns, columnWidths), "  " + previewSeparator(columnWidths)}
 	for _, row := range rows {
 		lines = append(lines, "  "+previewRow(row, columnWidths))
+	}
+	return lines
+}
+
+func wrapText(value string, width int) []string {
+	if width < 1 { return []string{value} }
+	var lines []string
+	for _, sourceLine := range strings.Split(value, "\n") {
+		line := ""
+		for _, character := range sourceLine {
+			candidate := line + string(character)
+			if line != "" && lipgloss.Width(candidate) > width {
+				lines = append(lines, line)
+				line = string(character)
+			} else {
+				line = candidate
+			}
+		}
+		lines = append(lines, line)
 	}
 	return lines
 }

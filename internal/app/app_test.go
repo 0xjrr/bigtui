@@ -135,8 +135,21 @@ func TestViewQueryRemainsOneStyledBlock(t *testing.T) {
 	state.showInfo = true
 	lines := state.infoLines()
 	joined := strings.Join(lines, "\n")
-	if !contains(joined, "SELECT customer_id") || !contains(joined, "GROUP BY customer_id") {
+	compact := strings.ReplaceAll(strings.ReplaceAll(joined, " ", ""), "\n", "")
+	if !contains(compact, "SELECTcustomer_id") || !contains(compact, "GROUPBYcustomer_id") {
 		t.Fatalf("view query block was not preserved: %q", joined)
+	}
+}
+
+func TestWrapTextSplitsLongQueryLines(t *testing.T) {
+	lines := wrapText("SELECT customer_id, customer_name FROM customer_order_totals", 20)
+	if len(lines) < 2 {
+		t.Fatalf("expected long query to wrap: %#v", lines)
+	}
+	for _, line := range lines {
+		if lipgloss.Width(line) > 20 {
+			t.Fatalf("wrapped query line exceeds width: %q", line)
+		}
 	}
 }
 
