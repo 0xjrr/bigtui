@@ -100,11 +100,11 @@ func TestEnterOpensResourceInfoModal(t *testing.T) {
 	state.showInfo = false
 	state.selectedChild = 0
 	state.showInfo = true
-	if !contains(state.infoView(), "Ada Lovelace") || !contains(state.infoView(), "Preview") {
+	if !contains(strings.Join(state.infoLines(), "\n"), "Ada Lovelace") || !contains(strings.Join(state.infoLines(), "\n"), "Preview") {
 		t.Fatal("table information should include its data preview")
 	}
 	state.selectedChild = 2
-	if !contains(state.infoView(), "gs://partner-feed/events/*.parquet") {
+	if !contains(strings.Join(state.infoLines(), "\n"), "gs://partner-feed/events/*.parquet") {
 		t.Fatal("external table information should include its source")
 	}
 }

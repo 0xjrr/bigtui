@@ -66,6 +66,7 @@ type model struct {
 	selectedChild   int
 	expandedDataset map[string]bool
 	showInfo        bool
+	infoScroll      int
 }
 
 var (
@@ -164,6 +165,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "esc", "enter", "q":
 				m.showInfo = false
+				m.infoScroll = 0
+				return m, nil
+			case "up", "k":
+				if m.infoScroll > 0 {
+					m.infoScroll--
+				}
+				return m, nil
+			case "down", "j":
+				m.infoScroll++
+				return m, nil
+			case "pgup":
+				m.infoScroll -= max(1, m.height/2)
+				if m.infoScroll < 0 {
+					m.infoScroll = 0
+				}
+				return m, nil
+			case "pgdown":
+				m.infoScroll += max(1, m.height/2)
 				return m, nil
 			}
 			return m, nil
@@ -215,6 +234,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			if m.focus == focusProjects && len(m.projects) > 0 {
 				m.showInfo = true
+				m.infoScroll = 0
 				return m, nil
 			}
 			if m.focus == focusHistory && len(m.tabs[m.activeTab].history) > 0 {
@@ -623,6 +643,25 @@ func (m model) panelBoxStyle(panelFocus focus) lipgloss.Style {
 }
 
 func (m model) infoView() string {
+	lines := m.infoLines()
+	modalWidth := max(40, m.width-4)
+	modalHeight := max(12, m.height-4)
+	viewport := max(1, modalHeight-6)
+	maxScroll := max(0, len(lines)-viewport)
+	scroll := m.infoScroll
+	if scroll > maxScroll {
+		scroll = maxScroll
+	}
+	if scroll < 0 {
+		scroll = 0
+	}
+	end := minInt(len(lines), scroll+viewport)
+	visible := lines[scroll:end]
+	visible = append(visible, "", lipgloss.NewStyle().Foreground(ink).Render("Up/Down scroll  ·  Enter/Esc close"))
+	return lipgloss.NewStyle().Width(modalWidth).Height(modalHeight).Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(2).Render(lipgloss.JoinVertical(lipgloss.Left, visible...))
+}
+
+func (m model) infoLines() []string {
 	title := "PROJECT"
 	name := m.projects[m.active].Name
 	identifier := m.projects[m.active].ID
@@ -643,7 +682,7 @@ func (m model) infoView() string {
 			if len(child.ViewQuery) > 0 {
 				details = append(details, "", "Query")
 				for _, line := range strings.Split(child.ViewQuery, "\n") {
-					details = append(details, "  "+truncate(line, 58))
+					details = append(details, "  "+line)
 				}
 			}
 			if len(child.ExternalSource) > 0 {
@@ -662,10 +701,7 @@ func (m model) infoView() string {
 	for _, detail := range details {
 		lines = append(lines, lipgloss.NewStyle().Foreground(muted).Render(detail))
 	}
-	lines = append(lines, "", lipgloss.NewStyle().Foreground(ink).Render("Enter/Esc close"))
-	modalWidth := max(40, m.width-4)
-	modalHeight := max(12, m.height-4)
-	return lipgloss.NewStyle().Width(modalWidth).Height(modalHeight).Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(2).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+	return lines
 }
 
 func formatPreview(columns []string, rows [][]string, width int) []string {
