@@ -67,6 +67,9 @@ func TestShortcutFocusDoesNotResizeWorkspace(t *testing.T) {
 	state.width = 120
 	state.height = 40
 	initialHeight := lipgloss.Height(state.View())
+	if initialHeight > state.height {
+		t.Fatalf("workspace exceeds terminal height: %d > %d", initialHeight, state.height)
+	}
 	for index := 0; index < 2; index++ {
 		updated, _ := state.Update(tea.KeyMsg{Type: tea.KeyTab})
 		state = updated.(model)

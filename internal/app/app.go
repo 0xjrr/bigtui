@@ -216,7 +216,7 @@ func (m model) projectView() string {
 		lines = append(lines, line)
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, append([]string{lipgloss.NewStyle().Foreground(muted).Bold(true).Render("PROJECTS")}, lines...)...)
-	return lipgloss.NewStyle().Width(24).Height(max(10, m.height-6)).Border(lipgloss.RoundedBorder()).BorderForeground(border).Padding(1).Render(content)
+	return lipgloss.NewStyle().Width(24).Height(max(10, m.height-10)).Border(lipgloss.RoundedBorder()).BorderForeground(border).Padding(1).Render(content)
 }
 
 func (m model) editorView() string {
