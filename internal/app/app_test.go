@@ -33,12 +33,46 @@ func TestQQuitsFromWorkspace(t *testing.T) {
 	model := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
 		return bigquery.Result{}, nil
 	}))
+	model.focus = focusProjects
+	model.applyFocus()
 	_, command := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 	if command == nil {
 		t.Fatal("expected q to return a quit command")
 	}
 	if _, ok := command().(tea.QuitMsg); !ok {
 		t.Fatalf("expected quit message, got %T", command())
+	}
+}
+
+func TestEditorKeepsQAndQuestionMarkForSQL(t *testing.T) {
+	state := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}))
+	updated, command := state.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	state = updated.(model)
+	if isQuitCommand(command) || !contains(state.tabs[0].editor.Value(), "q") {
+		t.Fatalf("q was intercepted by a global shortcut: quit=%v query=%q", isQuitCommand(command), state.tabs[0].editor.Value())
+	}
+	updated, command = state.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	state = updated.(model)
+	if isQuitCommand(command) || !contains(state.tabs[0].editor.Value(), "?") || state.showHelp {
+		t.Fatalf("question mark was intercepted by a global shortcut: quit=%v help=%v", isQuitCommand(command), state.showHelp)
+	}
+}
+
+func TestTabControlsWorkFromEditor(t *testing.T) {
+	state := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}))
+	updated, _ := state.Update(tea.KeyMsg{Type: tea.KeyCtrlN})
+	state = updated.(model)
+	if len(state.tabs) != 2 {
+		t.Fatalf("expected ctrl+n to add a tab from editor, got %d", len(state.tabs))
+	}
+	updated, _ = state.Update(tea.KeyMsg{Type: tea.KeyCtrlLeft})
+	state = updated.(model)
+	if state.activeTab != 0 {
+		t.Fatalf("expected ctrl+left to switch tabs from editor, got %d", state.activeTab)
 	}
 }
 
@@ -116,4 +150,12 @@ func contains(value, part string) bool {
 		}
 	}
 	return false
+}
+
+func isQuitCommand(command tea.Cmd) bool {
+	if command == nil {
+		return false
+	}
+	_, ok := command().(tea.QuitMsg)
+	return ok
 }

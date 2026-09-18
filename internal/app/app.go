@@ -104,14 +104,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setResult(msg.tab, msg.result)
 		}
 	case tea.KeyMsg:
-		if msg.String() == "ctrl+c" || msg.String() == "q" {
+		if msg.String() == "ctrl+c" || (msg.String() == "q" && m.focus != focusEditor) {
 			return m, tea.Quit
 		}
-		if msg.String() == "?" {
+		if msg.String() == "?" && m.focus != focusEditor {
 			m.showHelp = !m.showHelp
-			return m, nil
-		}
-		if m.showHelp {
 			return m, nil
 		}
 		switch msg.String() {
@@ -127,6 +124,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "alt+right", "ctrl+right", "ctrl+tab":
 			m.switchTab(1)
 			return m, nil
+		}
+		if m.showHelp {
+			return m, nil
+		}
+		switch msg.String() {
 		case "tab":
 			m.focus = (m.focus + 1) % 4
 			m.applyFocus()
@@ -136,9 +138,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.applyFocus()
 			return m, nil
 		case "ctrl+enter":
+			if m.focus != focusEditor {
+				break
+			}
 			m.status = "Running query against " + m.projects[m.active].ID + "..."
 			return m, m.runQuery()
 		case "a":
+			if m.focus != focusProjects {
+				break
+			}
 			m.projects = append(m.projects, project.Project{ID: "new-project", Location: "US"})
 			m.active = len(m.projects) - 1
 			m.status = "Added project placeholder; edit project configuration next."
@@ -238,11 +246,7 @@ func (m model) View() string {
 	focusIndicator := lipgloss.NewStyle().Foreground(accent).Bold(true).Render("FOCUS: " + focusLabel(m.focus))
 	projectView := m.projectView()
 	main := lipgloss.JoinVertical(lipgloss.Left, m.editorView(), m.resultView())
-	footerStyle := lipgloss.NewStyle().Foreground(muted).Border(lipgloss.RoundedBorder()).BorderForeground(panel).Padding(0, 1)
-	if m.focus == focusShortcuts {
-		footerStyle = footerStyle.Foreground(ink).Bold(true).BorderForeground(accent)
-	}
-	footer := footerStyle.Render("ctrl+left/right tabs  •  tab focus  •  ctrl+enter run  •  ctrl+n new  •  ctrl+w close  •  ? help  •  q quit")
+	footer := m.shortcutView()
 	status := lipgloss.NewStyle().Foreground(accent).Render("● " + m.status)
 	view := lipgloss.JoinVertical(lipgloss.Left, header, tabStrip, focusIndicator, "", lipgloss.JoinHorizontal(lipgloss.Top, projectView, "  ", main), "", status, footer)
 	if m.showHelp {
@@ -263,6 +267,32 @@ func (m model) tabView() string {
 	}
 	items = append(items, lipgloss.NewStyle().Foreground(accent).Padding(0, 1).Render("New tab · Ctrl+N"))
 	return lipgloss.JoinHorizontal(lipgloss.Top, items...)
+}
+
+func (m model) shortcutView() string {
+	tabStyle := lipgloss.NewStyle().Foreground(ink).Border(lipgloss.RoundedBorder()).BorderForeground(border).Padding(0, 1)
+	contextStyle := lipgloss.NewStyle().Foreground(muted).Border(lipgloss.RoundedBorder()).BorderForeground(panel).Padding(0, 1)
+	if m.focus == focusShortcuts {
+		contextStyle = contextStyle.Foreground(ink).Bold(true).BorderForeground(accent)
+	}
+	tabControls := tabStyle.Render("TABS  Ctrl+Left/Right switch  ·  Ctrl+N new  ·  Ctrl+W close  ·  Tab focus")
+	contextControls := contextStyle.Render(focusShortcutsLabel(m.focus))
+	return lipgloss.JoinHorizontal(lipgloss.Top, tabControls, " ", contextControls)
+}
+
+func focusShortcutsLabel(current focus) string {
+	switch current {
+	case focusProjects:
+		return "PROJECTS  J/K select  ·  A add"
+	case focusEditor:
+		return "QUERY EDITOR  Ctrl+Enter run  ·  type SQL"
+	case focusResults:
+		return "RESULTS  Up/Down scroll"
+	case focusShortcuts:
+		return "SHORTCUTS  ? help  ·  Q quit"
+	default:
+		return ""
+	}
 }
 
 func focusLabel(current focus) string {
@@ -308,7 +338,7 @@ func (m model) resultView() string {
 }
 
 func (m model) helpView() string {
-	lines := []string{"KEYMAP", "", "tab / shift+tab   move focus", "ctrl+left/right   switch query tab", "ctrl+n             new query tab", "ctrl+w             close query tab", "j / k              switch project", "ctrl+enter         execute query", "a                  add project", "?                  close help", "ctrl+c             quit"}
+	lines := []string{"KEYMAP", "", "tab / shift+tab   move focus", "ctrl+left/right   switch query tab", "ctrl+n             new query tab", "ctrl+w             close query tab", "j / k              switch project", "ctrl+enter         execute query", "a                  add project", "?                  close help", "q                  quit outside editor", "ctrl+c             quit"}
 	return lipgloss.NewStyle().Width(50).Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(2).Render(strings.Join(lines, "\n"))
 }
 
