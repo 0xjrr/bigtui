@@ -55,7 +55,7 @@ func New(client bigquery.Client) *tea.Program {
 func initialModel(client bigquery.Client) model {
 	editor := textarea.New()
 	editor.Placeholder = "Write SQL..."
-	editor.SetValue("SELECT project_id, COUNT(*) AS rows\\nFROM `demo-analytics.region-us.INFORMATION_SCHEMA.TABLES`\\nGROUP BY project_id\\nORDER BY rows DESC")
+	editor.SetValue("SELECT project_id, COUNT(*) AS rows\nFROM `demo-analytics.region-us.INFORMATION_SCHEMA.TABLES`\nGROUP BY project_id\nORDER BY rows DESC")
 	editor.Prompt = "  "
 	editor.CharLimit = 10000
 	editor.ShowLineNumbers = true
@@ -87,7 +87,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setResult(msg.result)
 		}
 	case tea.KeyMsg:
-		if msg.String() == "ctrl+c" || msg.String() == "q" && m.showHelp {
+		if msg.String() == "ctrl+c" || msg.String() == "q" {
 			return m, tea.Quit
 		}
 		if msg.String() == "?" {
@@ -107,6 +107,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.applyFocus()
 			return m, nil
 		case "ctrl+enter":
+			m.status = "Running query against " + m.projects[m.active].ID + "..."
 			return m, m.runQuery()
 		case "a":
 			m.projects = append(m.projects, project.Project{ID: "new-project", Location: "US"})
@@ -127,6 +128,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	if m.focus == focusEditor {
 		m.editor, cmd = m.editor.Update(msg)
+	} else if m.focus == focusResults {
+		m.results, cmd = m.results.Update(msg)
 	}
 	return m, cmd
 }
@@ -143,7 +146,6 @@ func (m *model) applyFocus() {
 func (m model) runQuery() tea.Cmd {
 	projectID := m.projects[m.active].ID
 	sql := m.editor.Value()
-	m.status = "Running query against " + projectID + "..."
 	return func() tea.Msg {
 		result, err := m.client.Query(context.Background(), projectID, sql)
 		return queryFinished{result: result, err: err}
