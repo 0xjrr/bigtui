@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -134,6 +135,13 @@ func TestFormatBytes(t *testing.T) {
 		if got := formatBytes(input); got != expected {
 			t.Fatalf("formatBytes(%d) = %q, want %q", input, got, expected)
 		}
+	}
+}
+
+func TestFormatValidationErrorRemovesGoogleAPI400Prefix(t *testing.T) {
+	message := formatValidationError(errors.New("googleapi: Error 400: Syntax error: Unexpected end of script at [1:1]"))
+	if message != "Syntax error: Unexpected end of script at [1:1]" {
+		t.Fatalf("unexpected validation error: %q", message)
 	}
 }
 

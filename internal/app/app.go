@@ -154,7 +154,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case queryAnalyzed:
 		if msg.analysis.Err != nil {
-			m.validation = "0 Invalid · " + truncate(msg.analysis.Err.Error(), 70)
+			m.validation = "0 Invalid · " + truncate(formatValidationError(msg.analysis.Err), 70)
 		} else if msg.analysis.Valid {
 			m.validation = fmt.Sprintf("1 Valid · %s processed", formatBytes(msg.analysis.BytesProcessed))
 		}
@@ -665,6 +665,12 @@ func formatBytes(value int64) string {
 		}
 	}
 	return fmt.Sprintf("%.1f PB", amount/1000)
+}
+
+func formatValidationError(err error) string {
+	message := err.Error()
+	message = strings.TrimPrefix(message, "googleapi: Error 400: ")
+	return strings.TrimSpace(message)
 }
 
 func (m model) helpView() string {
