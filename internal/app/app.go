@@ -121,10 +121,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+w":
 			m.closeTab()
 			return m, nil
-		case "alt+left", "ctrl+shift+tab":
+		case "alt+left", "ctrl+left", "ctrl+shift+tab":
 			m.switchTab(-1)
 			return m, nil
-		case "alt+right", "ctrl+tab":
+		case "alt+right", "ctrl+right", "ctrl+tab":
 			m.switchTab(1)
 			return m, nil
 		case "tab":
@@ -242,7 +242,7 @@ func (m model) View() string {
 	if m.focus == focusShortcuts {
 		footerStyle = footerStyle.Foreground(ink).Bold(true).BorderForeground(accent)
 	}
-	footer := footerStyle.Render("tab focus  •  ctrl+enter run  •  a add project  •  ? help  •  q quit")
+	footer := footerStyle.Render("ctrl+left/right tabs  •  tab focus  •  ctrl+enter run  •  ctrl+n new  •  ctrl+w close  •  ? help  •  q quit")
 	status := lipgloss.NewStyle().Foreground(accent).Render("● " + m.status)
 	view := lipgloss.JoinVertical(lipgloss.Left, header, tabStrip, focusIndicator, "", lipgloss.JoinHorizontal(lipgloss.Top, projectView, "  ", main), "", status, footer)
 	if m.showHelp {
@@ -261,7 +261,7 @@ func (m model) tabView() string {
 		}
 		items = append(items, style.Render(label))
 	}
-	items = append(items, lipgloss.NewStyle().Foreground(accent).Padding(0, 1).Render("+ Ctrl+N"))
+	items = append(items, lipgloss.NewStyle().Foreground(accent).Padding(0, 1).Render("New tab · Ctrl+N"))
 	return lipgloss.JoinHorizontal(lipgloss.Top, items...)
 }
 
@@ -308,7 +308,7 @@ func (m model) resultView() string {
 }
 
 func (m model) helpView() string {
-	lines := []string{"KEYMAP", "", "tab / shift+tab   move focus", "alt+left/right    switch query tab", "ctrl+n             new query tab", "ctrl+w             close query tab", "j / k              switch project", "ctrl+enter         execute query", "a                  add project", "?                  close help", "ctrl+c             quit"}
+	lines := []string{"KEYMAP", "", "tab / shift+tab   move focus", "ctrl+left/right   switch query tab", "ctrl+n             new query tab", "ctrl+w             close query tab", "j / k              switch project", "ctrl+enter         execute query", "a                  add project", "?                  close help", "ctrl+c             quit"}
 	return lipgloss.NewStyle().Width(50).Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(2).Render(strings.Join(lines, "\n"))
 }
 
