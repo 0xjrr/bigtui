@@ -32,6 +32,8 @@ type queryFinished struct {
 	history int
 }
 
+type queryAnalyzed struct{ analysis bigquery.Analysis }
+
 type runRecord struct {
 	sql     string
 	started time.Time
@@ -55,6 +57,7 @@ type model struct {
 	tabs            []queryTab
 	activeTab       int
 	status          string
+	validation      string
 	width           int
 	height          int
 	showHelp        bool
@@ -149,6 +152,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = fmt.Sprintf("Returned %d rows", msg.result.Total)
 			m.setResult(msg.tab, msg.result)
 		}
+	case queryAnalyzed:
+		if msg.analysis.Err != nil {
+			m.validation = "0 Invalid · " + truncate(msg.analysis.Err.Error(), 70)
+		} else if msg.analysis.Valid {
+			m.validation = fmt.Sprintf("1 Valid · %s processed", formatBytes(msg.analysis.BytesProcessed))
+		}
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" || (msg.String() == "q" && m.focus != focusEditor) {
 			return m, tea.Quit
@@ -231,10 +240,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	if m.focus == focusEditor {
 		m.tabs[m.activeTab].editor, cmd = m.tabs[m.activeTab].editor.Update(msg)
+		if _, ok := msg.(tea.KeyMsg); ok {
+			return m, tea.Batch(cmd, m.analyzeQuery())
+		}
 	} else if m.focus == focusResults {
 		m.tabs[m.activeTab].results, cmd = m.tabs[m.activeTab].results.Update(msg)
 	}
 	return m, cmd
+}
+
+func (m model) analyzeQuery() tea.Cmd {
+	if len(m.projects) == 0 {
+		return nil
+	}
+	analyzer, ok := m.client.(bigquery.Analyzer)
+	if !ok {
+		return nil
+	}
+	projectID := m.projects[m.active].ID
+	sql := m.tabs[m.activeTab].editor.Value()
+	return func() tea.Msg { return queryAnalyzed{analysis: analyzer.Analyze(context.Background(), projectID, sql)} }
 }
 
 func (m *model) applyFocus() {
@@ -379,7 +404,7 @@ func (m *model) resizeTab(index int) {
 	}
 	m.tabs[index].editor.SetWidth(max(30, m.width-66))
 	m.tabs[index].results.SetWidth(max(30, m.width-66))
-	m.tabs[index].results.SetHeight(max(3, m.height-22))
+	m.tabs[index].results.SetHeight(max(3, m.height-23))
 }
 
 func (m *model) closeTab() {
@@ -447,8 +472,9 @@ func (m model) View() string {
 	historyView := lipgloss.JoinVertical(lipgloss.Left, panelTitle("RUN HISTORY"), m.historyView())
 	footer := m.shortcutView()
 	status := lipgloss.NewStyle().Foreground(accent).Render("● " + m.status)
+	validation := lipgloss.NewStyle().Foreground(muted).Render(m.validation)
 	workspace := lipgloss.JoinHorizontal(lipgloss.Top, projectView, "  ", main, "  ", historyView)
-	view := lipgloss.JoinVertical(lipgloss.Left, header, tabStrip, focusIndicator, "", workspace, "", status, footer)
+	view := lipgloss.JoinVertical(lipgloss.Left, header, tabStrip, focusIndicator, "", workspace, "", status, validation, footer)
 	if m.showHelp {
 		return m.helpView()
 	}
@@ -558,7 +584,7 @@ func (m model) projectView() string {
 						if resourceIndex == m.selectedDataset && childIndex == m.selectedChild {
 							childMarker = "      ▸ "
 						}
-						childLine := childMarker + child.Name
+						childLine := childMarker + truncate(child.Name, 18)
 						if resourceIndex == m.selectedDataset && childIndex == m.selectedChild {
 							childLine = lipgloss.NewStyle().Foreground(accent).Bold(true).Render(childLine)
 						}
@@ -624,6 +650,21 @@ func truncate(value string, width int) string {
 		return value
 	}
 	return value[:width-3] + "..."
+}
+
+func formatBytes(value int64) string {
+	if value < 1000 {
+		return fmt.Sprintf("%d B", value)
+	}
+	units := []string{"KB", "MB", "GB", "TB"}
+	amount := float64(value)
+	for _, unit := range units {
+		amount /= 1000
+		if amount < 1000 {
+			return fmt.Sprintf("%.1f %s", amount, unit)
+		}
+	}
+	return fmt.Sprintf("%.1f PB", amount/1000)
 }
 
 func (m model) helpView() string {

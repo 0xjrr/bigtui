@@ -129,6 +129,14 @@ func TestProjectIDIsTruncatedForSingleLineDisplay(t *testing.T) {
 	}
 }
 
+func TestFormatBytes(t *testing.T) {
+	for input, expected := range map[int64]string{0: "0 B", 1200: "1.2 KB", 1200000: "1.2 MB"} {
+		if got := formatBytes(input); got != expected {
+			t.Fatalf("formatBytes(%d) = %q, want %q", input, got, expected)
+		}
+	}
+}
+
 func TestFocusIndicatorCyclesThroughWorkspaceAreas(t *testing.T) {
 	state := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
 		return bigquery.Result{}, nil
