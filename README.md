@@ -10,7 +10,7 @@ go run ./cmd/bigtui
 
 On startup, bigtui checks for Google Application Default Credentials. If none are available, it automatically starts the interactive `gcloud auth application-default login` flow before opening the TUI. The `gcloud` CLI must be installed and available on `PATH`.
 
-The default screen starts with no connected projects so the empty state is visible. Press `a` to add a project, `tab` to switch focus, `ctrl+r` to run a query, and `?` to open the keymap.
+The default screen loads the Google Cloud projects available to the authenticated user. If the account has no accessible projects, the empty state is shown. Press `ctrl+a` to add a named project connection, `tab` to switch focus, `ctrl+r` to run a query, and `?` to open the keymap.
 
 For UI testing without relying on BigQuery resources, start with the fixture catalog:
 

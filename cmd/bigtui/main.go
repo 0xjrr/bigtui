@@ -9,6 +9,7 @@ import (
 	"github.com/xjrr/bigtui/internal/app"
 	"github.com/xjrr/bigtui/internal/auth"
 	"github.com/xjrr/bigtui/internal/bigquery"
+	"github.com/xjrr/bigtui/internal/project"
 )
 
 func main() {
@@ -26,7 +27,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	program := app.NewWithMock(client, *mock)
+	projects := project.MockProjects()
+	if !*mock {
+		projects, err = project.Load(ctx)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "bigtui: %v\n", err)
+			os.Exit(1)
+		}
+	}
+	program := app.NewWithProjects(client, projects)
 	if _, err := program.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "bigtui: %v\n", err)
 		os.Exit(1)

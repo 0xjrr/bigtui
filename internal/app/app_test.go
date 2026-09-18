@@ -82,6 +82,26 @@ func TestTabControlsWorkFromEditor(t *testing.T) {
 	}
 }
 
+func TestCtrlAOpensProjectFormAndCreatesGeneratedID(t *testing.T) {
+	state := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}))
+	updated, _ := state.Update(tea.KeyMsg{Type: tea.KeyCtrlA})
+	state = updated.(model)
+	if !state.projectForm {
+		t.Fatal("expected Ctrl+A to open the project form")
+	}
+	state.projectName.SetValue("My Project 8917aa")
+	updated, _ = state.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	state = updated.(model)
+	if state.projectForm || len(state.projects) != 1 {
+		t.Fatalf("expected project form submission to add one project: form=%v projects=%#v", state.projectForm, state.projects)
+	}
+	if state.projects[0].Name != "My Project 8917aa" || state.projects[0].ID != "my-project-8917aa" {
+		t.Fatalf("unexpected generated project: %#v", state.projects[0])
+	}
+}
+
 func TestFocusIndicatorCyclesThroughWorkspaceAreas(t *testing.T) {
 	state := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
 		return bigquery.Result{}, nil

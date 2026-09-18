@@ -9,6 +9,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/xjrr/bigtui/internal/bigquery"
@@ -48,16 +49,18 @@ type queryTab struct {
 }
 
 type model struct {
-	client    bigquery.Client
-	projects  []project.Project
-	active    int
-	focus     focus
-	tabs      []queryTab
-	activeTab int
-	status    string
-	width     int
-	height    int
-	showHelp  bool
+	client      bigquery.Client
+	projects    []project.Project
+	active      int
+	focus       focus
+	tabs        []queryTab
+	activeTab   int
+	status      string
+	width       int
+	height      int
+	showHelp    bool
+	projectForm bool
+	projectName textinput.Model
 }
 
 var (
@@ -69,7 +72,7 @@ var (
 )
 
 func New(client bigquery.Client) *tea.Program {
-	return NewWithMock(client, false)
+	return NewWithProjects(client, nil)
 }
 
 func initialModel(client bigquery.Client) model {
@@ -77,7 +80,14 @@ func initialModel(client bigquery.Client) model {
 }
 
 func NewWithMock(client bigquery.Client, mock bool) *tea.Program {
-	return tea.NewProgram(initialModelWithMock(client, mock), tea.WithAltScreen())
+	if mock {
+		return NewWithProjects(client, project.MockProjects())
+	}
+	return NewWithProjects(client, nil)
+}
+
+func NewWithProjects(client bigquery.Client, projects []project.Project) *tea.Program {
+	return tea.NewProgram(initialModelWithProjects(client, projects), tea.WithAltScreen())
 }
 
 func initialModelWithMock(client bigquery.Client, mock bool) model {
@@ -85,12 +95,20 @@ func initialModelWithMock(client bigquery.Client, mock bool) model {
 	if mock || os.Getenv("BIGTUI_MOCK_DATA") == "1" {
 		projects = project.MockProjects()
 	}
+	return initialModelWithProjects(client, projects)
+}
+
+func initialModelWithProjects(client bigquery.Client, projects []project.Project) model {
 	tab := newQueryTab("Query 1", "")
 	tab.editor.Focus()
+	projectName := textinput.New()
+	projectName.Placeholder = "Project name"
+	projectName.CharLimit = 80
 	return model{
 		client: client, projects: projects, focus: focusEditor,
-		tabs:   []queryTab{tab},
-		status: "Ready. Ctrl+R runs the query.",
+		tabs:        []queryTab{tab},
+		status:      "Ready. Ctrl+R runs the query.",
+		projectName: projectName,
 	}
 }
 
@@ -134,6 +152,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setResult(msg.tab, msg.result)
 		}
 	case tea.KeyMsg:
+		if m.projectForm {
+			switch msg.String() {
+			case "esc":
+				m.projectForm = false
+				m.projectName.Blur()
+				m.status = "Project creation cancelled."
+				return m, nil
+			case "enter":
+				m.createProject()
+				return m, nil
+			}
+			var cmd tea.Cmd
+			m.projectName, cmd = m.projectName.Update(msg)
+			return m, cmd
+		}
 		if msg.String() == "ctrl+c" || (msg.String() == "q" && m.focus != focusEditor) {
 			return m, tea.Quit
 		}
@@ -142,6 +175,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		switch msg.String() {
+		case "ctrl+a":
+			m.projectForm = true
+			m.projectName.SetValue("")
+			m.projectName.Focus()
+			return m, nil
 		case "ctrl+n":
 			m.addTab()
 			return m, nil
@@ -178,14 +216,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "Running query against " + m.projects[m.active].ID + "..."
 			historyIndex := m.recordQuery()
 			return m, m.runQuery(historyIndex)
-		case "a":
-			if m.focus != focusProjects {
-				break
-			}
-			m.projects = append(m.projects, project.Project{ID: "new-project", Location: "US"})
-			m.active = len(m.projects) - 1
-			m.status = "Added project placeholder; edit project configuration next."
-			return m, nil
 		case "enter":
 			if m.focus == focusHistory && len(m.tabs[m.activeTab].history) > 0 {
 				record := m.tabs[m.activeTab].history[m.tabs[m.activeTab].historyCursor]
@@ -230,6 +260,42 @@ func (m *model) applyFocus() {
 		m.tabs[m.activeTab].editor.Focus()
 	}
 	m.tabs[m.activeTab].results.SetCursor(0)
+}
+
+func (m *model) createProject() {
+	name := strings.TrimSpace(m.projectName.Value())
+	if name == "" {
+		m.status = "Project name is required."
+		return
+	}
+	id := projectIDFromName(name)
+	m.projects = append(m.projects, project.Project{ID: id, Name: name})
+	m.active = len(m.projects) - 1
+	m.projectForm = false
+	m.projectName.Blur()
+	m.status = "Added project " + id
+}
+
+func projectIDFromName(name string) string {
+	var builder strings.Builder
+	lastDash := false
+	for _, character := range strings.ToLower(name) {
+		if character >= 'a' && character <= 'z' || character >= '0' && character <= '9' {
+			builder.WriteRune(character)
+			lastDash = false
+		} else if builder.Len() > 0 && !lastDash {
+			builder.WriteByte('-')
+			lastDash = true
+		}
+	}
+	id := strings.Trim(builder.String(), "-")
+	if len(id) < 6 {
+		id += "-project"
+	}
+	if len(id) > 30 {
+		id = strings.Trim(id[:30], "-")
+	}
+	return id
 }
 
 func (m *model) addTab() {
@@ -308,6 +374,9 @@ func (m model) View() string {
 	if m.width == 0 {
 		return "Starting bigtui..."
 	}
+	if m.projectForm {
+		return m.projectFormView()
+	}
 	header := lipgloss.NewStyle().Foreground(ink).Bold(true).Render("BIGTUI") + "  " + lipgloss.NewStyle().Foreground(muted).Render("BigQuery workspace")
 	tabStrip := m.tabView()
 	focusIndicator := lipgloss.NewStyle().Foreground(accent).Bold(true).Render("FOCUS: " + focusLabel(m.focus))
@@ -351,7 +420,7 @@ func (m model) shortcutView() string {
 func focusShortcutsLabel(current focus) string {
 	switch current {
 	case focusProjects:
-		return "PROJECTS  J/K select  ·  A add"
+		return "PROJECTS  J/K select  ·  Ctrl+A add"
 	case focusEditor:
 		return "QUERY EDITOR  Ctrl+R run  ·  Enter newline"
 	case focusResults:
@@ -387,7 +456,7 @@ func (m model) projectView() string {
 		content := lipgloss.JoinVertical(lipgloss.Left,
 			lipgloss.NewStyle().Foreground(muted).Render("No projects connected."),
 			"",
-			lipgloss.NewStyle().Foreground(accent).Render("Press A to add one."),
+			lipgloss.NewStyle().Foreground(accent).Render("Press Ctrl+A to add one."),
 		)
 		return lipgloss.NewStyle().Width(24).Height(max(10, m.height-13)).Border(lipgloss.RoundedBorder()).BorderForeground(border).Padding(1).Render(content)
 	}
@@ -397,17 +466,42 @@ func (m model) projectView() string {
 		if i == m.active {
 			marker = "▸ "
 		}
-		line := marker + item.ID
+		name := item.Name
+		if name == "" {
+			name = item.ID
+		}
+		line := marker + name
 		if i == m.active {
 			line = lipgloss.NewStyle().Foreground(accent).Bold(true).Render(line)
 		}
 		lines = append(lines, line)
+		lines = append(lines, lipgloss.NewStyle().Foreground(muted).Render("    "+item.ID))
 	}
 	for _, resource := range m.projects[m.active].Resources {
 		lines = append(lines, "  "+resource.Kind+"  "+resource.Name)
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return lipgloss.NewStyle().Width(24).Height(max(10, m.height-13)).Border(lipgloss.RoundedBorder()).BorderForeground(border).Padding(1).Render(content)
+}
+
+func (m model) projectFormView() string {
+	name := strings.TrimSpace(m.projectName.Value())
+	id := projectIDFromName(name)
+	if name == "" {
+		id = "generated-after-name"
+	}
+	content := lipgloss.JoinVertical(lipgloss.Left,
+		panelTitle("NEW PROJECT"),
+		"",
+		lipgloss.NewStyle().Foreground(muted).Render("Project name"),
+		m.projectName.View(),
+		"",
+		lipgloss.NewStyle().Foreground(muted).Render("Project ID  "+id),
+		lipgloss.NewStyle().Foreground(muted).Render("This ID is generated from the name and cannot be changed later."),
+		"",
+		lipgloss.NewStyle().Foreground(ink).Render("Enter create  ·  Esc cancel"),
+	)
+	return lipgloss.NewStyle().Width(72).Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(2).Render(content)
 }
 
 func (m model) editorView() string {
@@ -450,7 +544,7 @@ func panelTitle(title string) string {
 }
 
 func (m model) helpView() string {
-	lines := []string{"KEYMAP", "", "tab / shift+tab   move focus", "ctrl+left/right   switch query tab", "ctrl+n             new query tab", "ctrl+w             close query tab", "j / k              switch project", "ctrl+r             run query", "ctrl+enter         run when supported", "enter              insert newline", "a                  add project", "?                  close help", "q                  quit outside editor", "ctrl+c             quit"}
+	lines := []string{"KEYMAP", "", "tab / shift+tab   move focus", "ctrl+left/right   switch query tab", "ctrl+n             new query tab", "ctrl+w             close query tab", "j / k              switch project", "ctrl+a             add project", "ctrl+r             run query", "ctrl+enter         run when supported", "enter              insert newline", "?                  close help", "q                  quit outside editor", "ctrl+c             quit"}
 	return lipgloss.NewStyle().Width(50).Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(2).Render(strings.Join(lines, "\n"))
 }
 
