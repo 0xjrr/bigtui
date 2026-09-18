@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/xjrr/bigtui/internal/bigquery"
+	"github.com/xjrr/bigtui/internal/project"
 )
 
 type clientFunc func(context.Context, string, string) (bigquery.Result, error)
@@ -16,17 +17,21 @@ func (f clientFunc) Query(ctx context.Context, projectID, sql string) (bigquery.
 	return f(ctx, projectID, sql)
 }
 
-func TestInitialQueryUsesRealLineBreaks(t *testing.T) {
+func TestInitialQueryStartsEmpty(t *testing.T) {
 	model := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
 		return bigquery.Result{}, nil
 	}))
-	if value := model.tabs[0].editor.Value(); value == "" || value[0] == '\\' || value[0] == ' ' {
-		t.Fatalf("unexpected starter query: %q", value)
+	if value := model.tabs[0].editor.Value(); value != "" {
+		t.Fatalf("expected an empty starter query, got %q", value)
 	}
-	for _, line := range []string{"FROM `demo-analytics", "GROUP BY project_id", "ORDER BY rows DESC"} {
-		if !contains(model.tabs[0].editor.Value(), line) {
-			t.Fatalf("starter query is missing %q: %q", line, model.tabs[0].editor.Value())
-		}
+}
+
+func TestMockInitializerLoadsFixtureCatalog(t *testing.T) {
+	model := initialModelWithMock(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}), true)
+	if len(model.projects) != 2 || len(model.projects[0].Resources) == 0 {
+		t.Fatalf("expected mock projects and resources: %#v", model.projects)
 	}
 }
 
@@ -121,6 +126,7 @@ func TestCtrlJRecordsQueryRun(t *testing.T) {
 	state := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
 		return bigquery.Result{}, nil
 	}))
+	state.projects = project.MockProjects()
 	updated, command := state.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
 	state = updated.(model)
 	if command == nil || len(state.tabs[0].history) != 1 {
@@ -135,9 +141,10 @@ func TestEnterAddsNewlineAndCtrlRRunsQuery(t *testing.T) {
 	state := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
 		return bigquery.Result{}, nil
 	}))
+	state.projects = project.MockProjects()
 	updated, command := state.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	state = updated.(model)
-	if command == nil || len(state.tabs[0].history) != 0 || !contains(state.tabs[0].editor.Value(), "ORDER BY rows DESC\n") {
+	if command == nil || len(state.tabs[0].history) != 0 || state.tabs[0].editor.Value() != "\n" {
 		t.Fatalf("expected Enter to insert a newline: command=%v history=%d query=%q", command != nil, len(state.tabs[0].history), state.tabs[0].editor.Value())
 	}
 

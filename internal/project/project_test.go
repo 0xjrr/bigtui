@@ -2,8 +2,20 @@ package project
 
 import "testing"
 
-func TestDefaultsArePinned(t *testing.T) {
-	if len(Defaults) != 2 || !Defaults[0].Pinned || !Defaults[1].Pinned {
-		t.Fatalf("expected two pinned defaults: %#v", Defaults)
+func TestMockProjectsContainResourceKinds(t *testing.T) {
+	projects := MockProjects()
+	if len(projects) != 2 {
+		t.Fatalf("expected two mock projects: %#v", projects)
+	}
+	seen := map[string]bool{}
+	for _, project := range projects {
+		for _, resource := range project.Resources {
+			seen[resource.Kind] = true
+		}
+	}
+	for _, kind := range []string{"dataset", "table", "view"} {
+		if !seen[kind] {
+			t.Fatalf("mock catalog is missing %s resources", kind)
+		}
 	}
 }

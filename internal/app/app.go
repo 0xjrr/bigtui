@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -68,16 +69,28 @@ var (
 )
 
 func New(client bigquery.Client) *tea.Program {
-	return tea.NewProgram(initialModel(client), tea.WithAltScreen())
+	return NewWithMock(client, false)
 }
 
 func initialModel(client bigquery.Client) model {
-	tab := newQueryTab("Query 1", "SELECT project_id, COUNT(*) AS rows\nFROM `demo-analytics.region-us.INFORMATION_SCHEMA.TABLES`\nGROUP BY project_id\nORDER BY rows DESC")
+	return initialModelWithMock(client, os.Getenv("BIGTUI_MOCK_DATA") == "1")
+}
+
+func NewWithMock(client bigquery.Client, mock bool) *tea.Program {
+	return tea.NewProgram(initialModelWithMock(client, mock), tea.WithAltScreen())
+}
+
+func initialModelWithMock(client bigquery.Client, mock bool) model {
+	projects := []project.Project{}
+	if mock || os.Getenv("BIGTUI_MOCK_DATA") == "1" {
+		projects = project.MockProjects()
+	}
+	tab := newQueryTab("Query 1", "")
 	tab.editor.Focus()
 	return model{
-		client: client, projects: project.Defaults, focus: focusEditor,
+		client: client, projects: projects, focus: focusEditor,
 		tabs:   []queryTab{tab},
-		status: "Ready. Ctrl+Enter runs the query.",
+		status: "Ready. Ctrl+R runs the query.",
 	}
 }
 
@@ -157,6 +170,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+r", "ctrl+enter", "ctrl+j":
 			if m.focus != focusEditor {
 				break
+			}
+			if len(m.projects) == 0 {
+				m.status = "No project selected. Add a project first."
+				return m, nil
 			}
 			m.status = "Running query against " + m.projects[m.active].ID + "..."
 			historyIndex := m.recordQuery()
@@ -366,6 +383,14 @@ func focusLabel(current focus) string {
 }
 
 func (m model) projectView() string {
+	if len(m.projects) == 0 {
+		content := lipgloss.JoinVertical(lipgloss.Left,
+			lipgloss.NewStyle().Foreground(muted).Render("No projects connected."),
+			"",
+			lipgloss.NewStyle().Foreground(accent).Render("Press A to add one."),
+		)
+		return lipgloss.NewStyle().Width(24).Height(max(10, m.height-13)).Border(lipgloss.RoundedBorder()).BorderForeground(border).Padding(1).Render(content)
+	}
 	var lines []string
 	for i, item := range m.projects {
 		marker := "  "
@@ -377,6 +402,9 @@ func (m model) projectView() string {
 			line = lipgloss.NewStyle().Foreground(accent).Bold(true).Render(line)
 		}
 		lines = append(lines, line)
+	}
+	for _, resource := range m.projects[m.active].Resources {
+		lines = append(lines, "  "+resource.Kind+"  "+resource.Name)
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return lipgloss.NewStyle().Width(24).Height(max(10, m.height-13)).Border(lipgloss.RoundedBorder()).BorderForeground(border).Padding(1).Render(content)
