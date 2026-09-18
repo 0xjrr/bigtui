@@ -73,6 +73,32 @@ func TestProjectsTreeExpandsAndSelectsDatasets(t *testing.T) {
 	}
 }
 
+func TestEnterOpensResourceInfoModal(t *testing.T) {
+	state := initialModelWithMock(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}), true)
+	state.focus = focusProjects
+	updated, _ := state.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	state = updated.(model)
+	if !state.showInfo || !contains(state.infoView(), "Sandbox Analytics") {
+		t.Fatal("enter should open project information")
+	}
+	updated, _ = state.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	state = updated.(model)
+	if state.showInfo {
+		t.Fatal("escape should close resource information")
+	}
+	state.expanded[0] = true
+	state.selectedDataset = 0
+	state.expandedDataset[state.datasetKey(0, 0)] = true
+	state.selectedChild = 1
+	updated, _ = state.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	state = updated.(model)
+	if !state.showInfo || !contains(state.infoView(), "customer_order_totals") {
+		t.Fatal("enter should show selected child information")
+	}
+}
+
 func TestQQuitsFromWorkspace(t *testing.T) {
 	model := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
 		return bigquery.Result{}, nil

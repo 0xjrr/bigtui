@@ -65,6 +65,7 @@ type model struct {
 	selectedDataset int
 	selectedChild   int
 	expandedDataset map[string]bool
+	showInfo        bool
 }
 
 var (
@@ -159,6 +160,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.validation = fmt.Sprintf("1 Valid · %s processed", formatBytes(msg.analysis.BytesProcessed))
 		}
 	case tea.KeyMsg:
+		if m.showInfo {
+			switch msg.String() {
+			case "esc", "enter", "q":
+				m.showInfo = false
+				return m, nil
+			}
+			return m, nil
+		}
 		if msg.String() == "ctrl+c" || (msg.String() == "q" && m.focus != focusEditor) {
 			return m, tea.Quit
 		}
@@ -204,6 +213,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			historyIndex := m.recordQuery()
 			return m, m.runQuery(historyIndex)
 		case "enter":
+			if m.focus == focusProjects && len(m.projects) > 0 {
+				m.showInfo = true
+				return m, nil
+			}
 			if m.focus == focusHistory && len(m.tabs[m.activeTab].history) > 0 {
 				record := m.tabs[m.activeTab].history[m.tabs[m.activeTab].historyCursor]
 				m.tabs[m.activeTab].editor.SetValue(record.sql)
@@ -464,6 +477,9 @@ func (m model) View() string {
 	if m.width == 0 {
 		return "Starting bigtui..."
 	}
+	if m.showInfo {
+		return m.infoView()
+	}
 	header := lipgloss.NewStyle().Foreground(ink).Bold(true).Render("BIGTUI") + "  " + lipgloss.NewStyle().Foreground(muted).Render("BigQuery workspace")
 	tabStrip := m.tabView()
 	focusIndicator := lipgloss.NewStyle().Foreground(accent).Bold(true).Render("FOCUS: " + focusLabel(m.focus))
@@ -604,6 +620,34 @@ func (m model) panelBoxStyle(panelFocus focus) lipgloss.Style {
 		color = accent
 	}
 	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(color)
+}
+
+func (m model) infoView() string {
+	title := "PROJECT"
+	name := m.projects[m.active].Name
+	identifier := m.projects[m.active].ID
+	details := []string{"Project ID  " + identifier}
+	if name == "" {
+		name = identifier
+	}
+	if m.selectedDataset >= 0 {
+		dataset := m.projects[m.active].Resources[m.selectedDataset]
+		title = "DATASET"
+		name = dataset.Name
+		details = []string{"Project  " + m.projects[m.active].ID, fmt.Sprintf("Children  %d tables/views", len(dataset.Children))}
+		if m.selectedChild >= 0 && m.selectedChild < len(dataset.Children) {
+			child := dataset.Children[m.selectedChild]
+			title = strings.ToUpper(child.Kind)
+			name = child.Name
+			details = []string{"Project  " + m.projects[m.active].ID, "Dataset  " + dataset.Name, "Type     " + child.Kind}
+		}
+	}
+	lines := []string{panelTitle(title), "", lipgloss.NewStyle().Foreground(ink).Bold(true).Render(name), ""}
+	for _, detail := range details {
+		lines = append(lines, lipgloss.NewStyle().Foreground(muted).Render(detail))
+	}
+	lines = append(lines, "", lipgloss.NewStyle().Foreground(ink).Render("Enter/Esc close"))
+	return lipgloss.NewStyle().Width(64).Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(2).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 }
 
 func (m model) editorView() string {
