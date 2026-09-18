@@ -654,10 +654,7 @@ func (m model) infoView() string {
 			}
 			if len(child.Columns) > 0 {
 				details = append(details, "", "Preview")
-				details = append(details, "  "+strings.Join(child.Columns, " | "))
-				for _, row := range child.Preview {
-					details = append(details, "  "+strings.Join(row, " | "))
-				}
+				details = append(details, formatPreview(child.Columns, child.Preview, 58)...)
 			}
 		}
 	}
@@ -666,7 +663,64 @@ func (m model) infoView() string {
 		lines = append(lines, lipgloss.NewStyle().Foreground(muted).Render(detail))
 	}
 	lines = append(lines, "", lipgloss.NewStyle().Foreground(ink).Render("Enter/Esc close"))
-	return lipgloss.NewStyle().Width(64).Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(2).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+	modalWidth := max(40, m.width-4)
+	modalHeight := max(12, m.height-4)
+	return lipgloss.NewStyle().Width(modalWidth).Height(modalHeight).Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(2).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+}
+
+func formatPreview(columns []string, rows [][]string, width int) []string {
+	if len(columns) == 0 {
+		return nil
+	}
+	columnWidths := make([]int, len(columns))
+	for index, column := range columns {
+		columnWidths[index] = minInt(18, maxInt(4, len(column)))
+	}
+	for _, row := range rows {
+		for index, value := range row {
+			if index < len(columnWidths) {
+				columnWidths[index] = minInt(18, maxInt(columnWidths[index], len(value)))
+			}
+		}
+	}
+	lines := []string{"  " + previewRow(columns, columnWidths), "  " + previewSeparator(columnWidths)}
+	for _, row := range rows {
+		lines = append(lines, "  "+previewRow(row, columnWidths))
+	}
+	return lines
+}
+
+func previewRow(values []string, widths []int) string {
+	parts := make([]string, len(widths))
+	for index, width := range widths {
+		value := ""
+		if index < len(values) {
+			value = truncate(values[index], width)
+		}
+		parts[index] = fmt.Sprintf("%-*s", width, value)
+	}
+	return strings.TrimRight(strings.Join(parts, "  "), " ")
+}
+
+func previewSeparator(widths []int) string {
+	parts := make([]string, len(widths))
+	for index, width := range widths {
+		parts[index] = strings.Repeat("-", width)
+	}
+	return strings.Join(parts, "  ")
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func (m model) editorView() string {

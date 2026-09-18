@@ -109,6 +109,23 @@ func TestEnterOpensResourceInfoModal(t *testing.T) {
 	}
 }
 
+func TestPreviewIsStructuredAndModalFillsTerminal(t *testing.T) {
+	preview := formatPreview([]string{"id", "name"}, [][]string{{"1", "Ada"}}, 30)
+	if len(preview) != 3 || !contains(preview[0], "id") || !contains(preview[1], "-") || !contains(preview[2], "Ada") {
+		t.Fatalf("unexpected structured preview: %#v", preview)
+	}
+	state := initialModelWithMock(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}), true)
+	state.width, state.height = 100, 30
+	state.focus = focusProjects
+	state.showInfo = true
+	view := state.infoView()
+	if lipgloss.Width(view) < 90 || lipgloss.Height(view) < 26 {
+		t.Fatalf("modal should fill terminal: %dx%d", lipgloss.Width(view), lipgloss.Height(view))
+	}
+}
+
 func TestQQuitsFromWorkspace(t *testing.T) {
 	model := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
 		return bigquery.Result{}, nil
