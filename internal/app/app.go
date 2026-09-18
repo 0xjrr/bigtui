@@ -573,7 +573,7 @@ func (m model) projectView() string {
 				if i == m.active && resourceIndex == m.selectedDataset {
 					marker = "  ▸ "
 				}
-				line := marker + truncate(resource.Name, 16)
+				line := marker + resourceIcon(resource.Kind) + " " + truncate(resource.Name, 13)
 				if i == m.active && resourceIndex == m.selectedDataset {
 					line = lipgloss.NewStyle().Foreground(accent).Bold(true).Render(line)
 				}
@@ -584,7 +584,7 @@ func (m model) projectView() string {
 						if resourceIndex == m.selectedDataset && childIndex == m.selectedChild {
 							childMarker = "      ▸ "
 						}
-						childLine := childMarker + truncate(child.Name, 12)
+						childLine := childMarker + resourceIcon(child.Kind) + " " + truncate(child.Name, 9)
 						if resourceIndex == m.selectedDataset && childIndex == m.selectedChild {
 							childLine = lipgloss.NewStyle().Foreground(accent).Bold(true).Render(childLine)
 						}
@@ -650,6 +650,19 @@ func truncate(value string, width int) string {
 		return value
 	}
 	return value[:width-3] + "..."
+}
+
+func resourceIcon(kind string) string {
+	switch kind {
+	case "table":
+		return "▣"
+	case "external":
+		return "⇄"
+	case "view":
+		return "◈"
+	default:
+		return "·"
+	}
 }
 
 func formatBytes(value int64) string {

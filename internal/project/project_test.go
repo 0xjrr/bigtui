@@ -19,3 +19,19 @@ func TestMockProjectsContainDatasets(t *testing.T) {
 		t.Fatal("mock catalog is missing datasets")
 	}
 }
+
+func TestMockProjectsContainTableKinds(t *testing.T) {
+	seen := map[string]bool{}
+	for _, project := range MockProjects() {
+		for _, dataset := range project.Resources {
+			for _, child := range dataset.Children {
+				seen[child.Kind] = true
+			}
+		}
+	}
+	for _, kind := range []string{"table", "external", "view"} {
+		if !seen[kind] {
+			t.Fatalf("mock catalog is missing %s resources", kind)
+		}
+	}
+}

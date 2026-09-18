@@ -30,7 +30,7 @@ func MockProjects() []Project {
 			Name:     "Sandbox Analytics",
 			Location: "US",
 			Resources: []Resource{
-				{Name: "events", Kind: "dataset", Children: []Resource{{Name: "customers", Kind: "table"}, {Name: "customer_order_totals", Kind: "view"}}},
+				{Name: "events", Kind: "dataset", Children: []Resource{{Name: "customers", Kind: "table"}, {Name: "customer_order_totals", Kind: "view"}, {Name: "partner_feed", Kind: "external"}}},
 				{Name: "warehouse", Kind: "dataset", Children: []Resource{{Name: "orders", Kind: "table"}}},
 			},
 		},
@@ -89,7 +89,9 @@ func Load(ctx context.Context) ([]Project, error) {
 				}
 				kind := "table"
 				metadata, err := table.Metadata(ctx)
-				if err == nil && metadata.ViewQuery != "" {
+				if err == nil && metadata.ExternalDataConfig != nil {
+					kind = "external"
+				} else if err == nil && metadata.ViewQuery != "" {
 					kind = "view"
 				}
 				resource.Children = append(resource.Children, Resource{Name: table.TableID, Kind: kind})
