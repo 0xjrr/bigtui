@@ -60,6 +60,8 @@ type model struct {
 	showHelp        bool
 	expanded        []bool
 	selectedDataset int
+	selectedChild   int
+	expandedDataset map[string]bool
 }
 
 var (
@@ -104,7 +106,7 @@ func initialModelWithProjects(client bigquery.Client, projects []project.Project
 		client: client, projects: projects, focus: focusEditor,
 		tabs:     []queryTab{tab},
 		status:   "Ready. Ctrl+R runs the query.",
-		expanded: make([]bool, len(projects)), selectedDataset: -1,
+		expanded: make([]bool, len(projects)), selectedDataset: -1, selectedChild: -1, expandedDataset: map[string]bool{},
 	}
 }
 
@@ -259,6 +261,28 @@ func (m *model) moveProjectSelection(direction int) {
 	}
 	if m.selectedDataset >= 0 {
 		datasets := m.datasetIndexes(m.active)
+		if m.selectedChild >= 0 {
+			children := m.projects[m.active].Resources[m.selectedDataset].Children
+			if direction > 0 && m.selectedChild < len(children)-1 {
+				m.selectedChild++
+				return
+			}
+			if direction < 0 && m.selectedChild > 0 {
+				m.selectedChild--
+				return
+			}
+			if direction < 0 {
+				m.selectedChild = -1
+				return
+			}
+		}
+		if direction > 0 && m.datasetExpanded(m.active, m.selectedDataset) {
+			children := m.projects[m.active].Resources[m.selectedDataset].Children
+			if len(children) > 0 {
+				m.selectedChild = 0
+				return
+			}
+		}
 		position := 0
 		for index, resourceIndex := range datasets {
 			if resourceIndex == m.selectedDataset {
@@ -268,24 +292,29 @@ func (m *model) moveProjectSelection(direction int) {
 		}
 		if direction > 0 && position < len(datasets)-1 {
 			m.selectedDataset = datasets[position+1]
+			m.selectedChild = -1
 			return
 		}
 		if direction < 0 && position > 0 {
 			m.selectedDataset = datasets[position-1]
+			m.selectedChild = -1
 			return
 		}
 		if direction < 0 {
 			m.selectedDataset = -1
+			m.selectedChild = -1
 			return
 		}
 	}
 	if direction > 0 && m.active < len(m.projects)-1 {
 		m.active++
 		m.selectedDataset = -1
+		m.selectedChild = -1
 	}
 	if direction < 0 && m.active > 0 {
 		m.active--
 		m.selectedDataset = -1
+		m.selectedChild = -1
 	}
 }
 
@@ -299,14 +328,33 @@ func (m model) datasetIndexes(projectIndex int) []int {
 	return indexes
 }
 
+func (m model) datasetKey(projectIndex, resourceIndex int) string {
+	return fmt.Sprintf("%d:%d", projectIndex, resourceIndex)
+}
+func (m model) datasetExpanded(projectIndex, resourceIndex int) bool {
+	return m.expandedDataset[m.datasetKey(projectIndex, resourceIndex)]
+}
+
 func (m *model) expandProject() {
+	if m.selectedDataset >= 0 {
+		m.expandedDataset[m.datasetKey(m.active, m.selectedDataset)] = true
+		return
+	}
 	if m.active >= 0 && m.active < len(m.expanded) {
 		m.expanded[m.active] = true
 	}
 }
 
 func (m *model) collapseProject() {
+	if m.selectedChild >= 0 {
+		m.selectedChild = -1
+		return
+	}
 	if m.selectedDataset >= 0 {
+		if m.datasetExpanded(m.active, m.selectedDataset) {
+			delete(m.expandedDataset, m.datasetKey(m.active, m.selectedDataset))
+			return
+		}
 		m.selectedDataset = -1
 		return
 	}
@@ -331,7 +379,7 @@ func (m *model) resizeTab(index int) {
 	}
 	m.tabs[index].editor.SetWidth(max(30, m.width-66))
 	m.tabs[index].results.SetWidth(max(30, m.width-66))
-	m.tabs[index].results.SetHeight(max(3, m.height-20))
+	m.tabs[index].results.SetHeight(max(3, m.height-22))
 }
 
 func (m *model) closeTab() {
@@ -466,13 +514,14 @@ func focusLabel(current focus) string {
 }
 
 func (m model) projectView() string {
+	boxStyle := m.panelBoxStyle(focusProjects).Padding(1).Width(24).Height(max(10, m.height-15))
 	if len(m.projects) == 0 {
 		content := lipgloss.JoinVertical(lipgloss.Left,
 			lipgloss.NewStyle().Foreground(muted).Render("No projects connected."),
 			"",
 			lipgloss.NewStyle().Foreground(accent).Render("No accessible projects found."),
 		)
-		return lipgloss.NewStyle().Width(24).Height(max(10, m.height-13)).Border(lipgloss.RoundedBorder()).BorderForeground(border).Padding(1).Render(content)
+		return boxStyle.Render(content)
 	}
 	var lines []string
 	for i, item := range m.projects {
@@ -503,21 +552,42 @@ func (m model) projectView() string {
 					line = lipgloss.NewStyle().Foreground(accent).Bold(true).Render(line)
 				}
 				lines = append(lines, line)
+				if i == m.active && m.datasetExpanded(i, resourceIndex) {
+					for childIndex, child := range resource.Children {
+						childMarker := "        "
+						if resourceIndex == m.selectedDataset && childIndex == m.selectedChild {
+							childMarker = "      ▸ "
+						}
+						childLine := childMarker + child.Name
+						if resourceIndex == m.selectedDataset && childIndex == m.selectedChild {
+							childLine = lipgloss.NewStyle().Foreground(accent).Bold(true).Render(childLine)
+						}
+						lines = append(lines, lipgloss.NewStyle().Foreground(muted).Render(childLine))
+					}
+				}
 			}
 		}
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	return lipgloss.NewStyle().Width(24).Height(max(10, m.height-13)).Border(lipgloss.RoundedBorder()).BorderForeground(border).Padding(1).Render(content)
+	return boxStyle.Render(content)
+}
+
+func (m model) panelBoxStyle(panelFocus focus) lipgloss.Style {
+	color := border
+	if m.focus == panelFocus {
+		color = accent
+	}
+	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(color)
 }
 
 func (m model) editorView() string {
 	title := lipgloss.NewStyle().Foreground(accent).Bold(true).Render("QUERY EDITOR")
-	return lipgloss.JoinVertical(lipgloss.Left, title, lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(border).Background(panel).Render(m.tabs[m.activeTab].editor.View()))
+	return lipgloss.JoinVertical(lipgloss.Left, title, m.panelBoxStyle(focusEditor).Background(panel).Render(m.tabs[m.activeTab].editor.View()))
 }
 
 func (m model) resultView() string {
 	title := lipgloss.NewStyle().Foreground(accent).Bold(true).Render("RESULTS")
-	return lipgloss.JoinVertical(lipgloss.Left, title, m.tabs[m.activeTab].results.View())
+	return lipgloss.JoinVertical(lipgloss.Left, title, m.panelBoxStyle(focusResults).Render(m.tabs[m.activeTab].results.View()))
 }
 
 func (m model) historyView() string {
@@ -542,7 +612,7 @@ func (m model) historyView() string {
 		lines = append(lines, lipgloss.NewStyle().Foreground(muted).Render("  No runs yet"))
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	return lipgloss.NewStyle().Width(30).Height(max(10, m.height-13)).Border(lipgloss.RoundedBorder()).BorderForeground(border).Padding(1).Render(content)
+	return m.panelBoxStyle(focusHistory).Padding(1).Width(30).Height(max(10, m.height-15)).Render(content)
 }
 
 func panelTitle(title string) string {

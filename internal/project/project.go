@@ -18,8 +18,9 @@ type Project struct {
 }
 
 type Resource struct {
-	Name string
-	Kind string
+	Name     string
+	Kind     string
+	Children []Resource
 }
 
 func MockProjects() []Project {
@@ -29,8 +30,8 @@ func MockProjects() []Project {
 			Name:     "Sandbox Analytics",
 			Location: "US",
 			Resources: []Resource{
-				{Name: "events", Kind: "dataset"},
-				{Name: "warehouse", Kind: "dataset"},
+				{Name: "events", Kind: "dataset", Children: []Resource{{Name: "customers", Kind: "table"}, {Name: "customer_order_totals", Kind: "view"}}},
+				{Name: "warehouse", Kind: "dataset", Children: []Resource{{Name: "orders", Kind: "table"}}},
 			},
 		},
 		{
@@ -38,7 +39,7 @@ func MockProjects() []Project {
 			Name:     "Sandbox Reporting",
 			Location: "EU",
 			Resources: []Resource{
-				{Name: "finance", Kind: "dataset"},
+				{Name: "finance", Kind: "dataset", Children: []Resource{{Name: "monthly_revenue", Kind: "view"}}},
 			},
 		},
 	}
@@ -75,7 +76,25 @@ func Load(ctx context.Context) ([]Project, error) {
 				client.Close()
 				return nil, fmt.Errorf("list datasets for project %s: %w", projects[index].ID, err)
 			}
-			projects[index].Resources = append(projects[index].Resources, Resource{Name: dataset.DatasetID, Kind: "dataset"})
+			resource := Resource{Name: dataset.DatasetID, Kind: "dataset"}
+			tables := dataset.Tables(ctx)
+			for {
+				table, err := tables.Next()
+				if err == iterator.Done {
+					break
+				}
+				if err != nil {
+					client.Close()
+					return nil, fmt.Errorf("list tables for dataset %s: %w", dataset.DatasetID, err)
+				}
+				kind := "table"
+				metadata, err := table.Metadata(ctx)
+				if err == nil && metadata.ViewQuery != "" {
+					kind = "view"
+				}
+				resource.Children = append(resource.Children, Resource{Name: table.TableID, Kind: kind})
+			}
+			projects[index].Resources = append(projects[index].Resources, resource)
 		}
 		client.Close()
 	}

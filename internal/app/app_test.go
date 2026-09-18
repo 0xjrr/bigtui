@@ -50,15 +50,25 @@ func TestProjectsTreeExpandsAndSelectsDatasets(t *testing.T) {
 	if state.selectedDataset < 0 || state.projects[state.active].Resources[state.selectedDataset].Kind != "dataset" {
 		t.Fatalf("down should select a dataset: project=%d resource=%d", state.active, state.selectedDataset)
 	}
-	updated, _ = state.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	updated, _ = state.Update(tea.KeyMsg{Type: tea.KeyRight})
 	state = updated.(model)
-	if state.selectedDataset != -1 || !state.expanded[0] {
-		t.Fatal("left from a dataset should return to its expanded project")
+	if !state.datasetExpanded(state.active, state.selectedDataset) {
+		t.Fatal("right should expand the selected dataset")
+	}
+	updated, _ = state.Update(tea.KeyMsg{Type: tea.KeyDown})
+	state = updated.(model)
+	if state.selectedChild < 0 {
+		t.Fatal("down should select a table or view inside the dataset")
 	}
 	updated, _ = state.Update(tea.KeyMsg{Type: tea.KeyLeft})
 	state = updated.(model)
-	if state.expanded[0] {
-		t.Fatal("left from a project should collapse it")
+	if state.selectedChild != -1 || state.selectedDataset == -1 {
+		t.Fatal("left from a child should return to its dataset")
+	}
+	updated, _ = state.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	state = updated.(model)
+	if state.datasetExpanded(state.active, state.selectedDataset) {
+		t.Fatal("left from a dataset should collapse it")
 	}
 }
 
