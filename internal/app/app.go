@@ -182,15 +182,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.focus == focusProjects && m.active < len(m.projects)-1 {
 				m.active++
 			}
-			if m.focus == focusHistory && m.tabs[m.activeTab].historyCursor < len(m.tabs[m.activeTab].history)-1 {
-				m.tabs[m.activeTab].historyCursor++
+			if m.focus == focusHistory && m.tabs[m.activeTab].historyCursor > 0 {
+				m.tabs[m.activeTab].historyCursor--
 			}
 		case "k", "up":
 			if m.focus == focusProjects && m.active > 0 {
 				m.active--
 			}
-			if m.focus == focusHistory && m.tabs[m.activeTab].historyCursor > 0 {
-				m.tabs[m.activeTab].historyCursor--
+			if m.focus == focusHistory && m.tabs[m.activeTab].historyCursor < len(m.tabs[m.activeTab].history)-1 {
+				m.tabs[m.activeTab].historyCursor++
 			}
 		}
 	}

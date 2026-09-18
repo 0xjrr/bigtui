@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -184,6 +185,30 @@ func TestNewTabUsesCurrentTerminalLayout(t *testing.T) {
 	state.addTab()
 	if got := lipgloss.Height(state.View()); got != firstHeight {
 		t.Fatalf("new tab changed workspace height from %d to %d", firstHeight, got)
+	}
+}
+
+func TestHistoryArrowDirectionMatchesReversedList(t *testing.T) {
+	state := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}))
+	state.tabs[0].history = []runRecord{
+		{sql: "SELECT 1", status: "done"},
+		{sql: "SELECT 2", status: "done"},
+		{sql: "SELECT 3", status: "done"},
+	}
+	state.tabs[0].historyCursor = 2
+	state.focus = focusHistory
+
+	updated, _ := state.Update(tea.KeyMsg{Type: tea.KeyDown})
+	state = updated.(model)
+	if state.tabs[0].historyCursor != 1 {
+		t.Fatalf("down should move to the next lower visible entry, got cursor %d", state.tabs[0].historyCursor)
+	}
+	updated, _ = state.Update(tea.KeyMsg{Type: tea.KeyUp})
+	state = updated.(model)
+	if state.tabs[0].historyCursor != 2 {
+		t.Fatalf("up should move to the previous higher visible entry, got cursor %d", state.tabs[0].historyCursor)
 	}
 }
 
