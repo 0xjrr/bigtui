@@ -10,7 +10,7 @@ go run ./cmd/bigtui
 
 On startup, bigtui checks for Google Application Default Credentials. If none are available, it automatically starts the interactive `gcloud auth application-default login` flow before opening the TUI. The `gcloud` CLI must be installed and available on `PATH`.
 
-The default screen loads the Google Cloud projects available to the authenticated user. If the account has no accessible projects, the empty state is shown. Press `ctrl+a` to add a named project connection, `tab` to switch focus, `ctrl+r` to run a query, and `?` to open the keymap.
+The default screen loads the Google Cloud projects available to the authenticated user and lists their datasets beneath each project. If the account has no accessible projects or datasets, the empty state is shown. Press `tab` to switch focus, `ctrl+r` to run a query, and `?` to open the keymap.
 
 For UI testing without relying on BigQuery resources, start with the fixture catalog:
 
@@ -18,7 +18,7 @@ For UI testing without relying on BigQuery resources, start with the fixture cat
 go run ./cmd/bigtui --mock
 ```
 
-The fixture catalog contains sandbox projects with datasets, tables, and views. It is opt-in and is never used as the default project list.
+The fixture catalog contains sandbox projects with datasets. It is opt-in and is never used as the default project list.
 
 ## Architecture
 

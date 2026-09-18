@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"strings"
 
+	cloudbigquery "cloud.google.com/go/bigquery"
 	cloudresourcemanager "google.golang.org/api/cloudresourcemanager/v1"
+	"google.golang.org/api/iterator"
 )
 
 type Project struct {
@@ -28,10 +30,7 @@ func MockProjects() []Project {
 			Location: "US",
 			Resources: []Resource{
 				{Name: "events", Kind: "dataset"},
-				{Name: "events.raw_events", Kind: "table"},
-				{Name: "events.daily_summary", Kind: "view"},
 				{Name: "warehouse", Kind: "dataset"},
-				{Name: "warehouse.orders", Kind: "table"},
 			},
 		},
 		{
@@ -40,7 +39,6 @@ func MockProjects() []Project {
 			Location: "EU",
 			Resources: []Resource{
 				{Name: "finance", Kind: "dataset"},
-				{Name: "finance.monthly_revenue", Kind: "view"},
 			},
 		},
 	}
@@ -61,6 +59,25 @@ func Load(ctx context.Context) ([]Project, error) {
 			continue
 		}
 		projects = append(projects, Project{ID: item.ProjectId, Name: item.Name})
+	}
+	for index := range projects {
+		client, err := cloudbigquery.NewClient(ctx, projects[index].ID)
+		if err != nil {
+			return nil, fmt.Errorf("connect to project %s: %w", projects[index].ID, err)
+		}
+		it := client.Datasets(ctx)
+		for {
+			dataset, err := it.Next()
+			if err == iterator.Done {
+				break
+			}
+			if err != nil {
+				client.Close()
+				return nil, fmt.Errorf("list datasets for project %s: %w", projects[index].ID, err)
+			}
+			projects[index].Resources = append(projects[index].Resources, Resource{Name: dataset.DatasetID, Kind: "dataset"})
+		}
+		client.Close()
 	}
 	return projects, nil
 }
