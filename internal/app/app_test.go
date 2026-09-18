@@ -41,6 +41,24 @@ func TestQQuitsFromWorkspace(t *testing.T) {
 	}
 }
 
+func TestFocusIndicatorCyclesThroughWorkspaceAreas(t *testing.T) {
+	state := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}))
+	expected := []string{"QUERY EDITOR", "RESULTS", "SHORTCUTS", "PROJECTS"}
+	for _, label := range expected {
+		if got := focusLabel(state.focus); got != label {
+			t.Fatalf("expected focus label %q, got %q", label, got)
+		}
+		var command tea.Cmd
+		updated, command := state.Update(tea.KeyMsg{Type: tea.KeyTab})
+		state = updated.(model)
+		if command != nil {
+			t.Fatalf("tab should only change focus, got command %T", command)
+		}
+	}
+}
+
 func contains(value, part string) bool {
 	for index := 0; index+len(part) <= len(value); index++ {
 		if value[index:index+len(part)] == part {

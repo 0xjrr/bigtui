@@ -20,6 +20,7 @@ const (
 	focusProjects focus = iota
 	focusEditor
 	focusResults
+	focusShortcuts
 )
 
 type queryFinished struct {
@@ -99,11 +100,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch msg.String() {
 		case "tab":
-			m.focus = (m.focus + 1) % 3
+			m.focus = (m.focus + 1) % 4
 			m.applyFocus()
 			return m, nil
 		case "shift+tab":
-			m.focus = (m.focus + 2) % 3
+			m.focus = (m.focus + 3) % 4
 			m.applyFocus()
 			return m, nil
 		case "ctrl+enter":
@@ -170,15 +171,35 @@ func (m model) View() string {
 		return "Starting bigtui..."
 	}
 	header := lipgloss.NewStyle().Foreground(ink).Bold(true).Render("BIGTUI") + "  " + lipgloss.NewStyle().Foreground(muted).Render("BigQuery workspace")
+	focusIndicator := lipgloss.NewStyle().Foreground(accent).Bold(true).Render("FOCUS: " + focusLabel(m.focus))
 	projectView := m.projectView()
 	main := lipgloss.JoinVertical(lipgloss.Left, m.editorView(), m.resultView())
-	footer := lipgloss.NewStyle().Foreground(muted).Render("tab focus  •  ctrl+enter run  •  a add project  •  ? help  •  q quit")
+	footerStyle := lipgloss.NewStyle().Foreground(muted)
+	if m.focus == focusShortcuts {
+		footerStyle = footerStyle.Foreground(ink).Bold(true).Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(0, 1)
+	}
+	footer := footerStyle.Render("tab focus  •  ctrl+enter run  •  a add project  •  ? help  •  q quit")
 	status := lipgloss.NewStyle().Foreground(accent).Render("● " + m.status)
-	view := lipgloss.JoinVertical(lipgloss.Left, header, "", lipgloss.JoinHorizontal(lipgloss.Top, projectView, "  ", main), "", status, footer)
+	view := lipgloss.JoinVertical(lipgloss.Left, header, focusIndicator, "", lipgloss.JoinHorizontal(lipgloss.Top, projectView, "  ", main), "", status, footer)
 	if m.showHelp {
 		return m.helpView()
 	}
 	return view
+}
+
+func focusLabel(current focus) string {
+	switch current {
+	case focusProjects:
+		return "PROJECTS"
+	case focusEditor:
+		return "QUERY EDITOR"
+	case focusResults:
+		return "RESULTS"
+	case focusShortcuts:
+		return "SHORTCUTS"
+	default:
+		return "UNKNOWN"
+	}
 }
 
 func (m model) projectView() string {
