@@ -176,6 +176,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.focus = focusEditor
 				m.applyFocus()
 				m.status = "Loaded query from run history"
+				break
+			}
+			if m.focus == focusEditor {
+				m.status = "Running query against " + m.projects[m.active].ID + "..."
+				historyIndex := m.recordQuery()
+				return m, m.runQuery(historyIndex)
+			}
+		case "alt+enter":
+			if m.focus == focusEditor {
+				m.tabs[m.activeTab].editor.InsertRune('\n')
+				return m, nil
 			}
 		case "j", "down":
 			if m.focus == focusProjects && m.active < len(m.projects)-1 {
@@ -335,7 +346,7 @@ func focusShortcutsLabel(current focus) string {
 	case focusProjects:
 		return "PROJECTS  J/K select  ·  A add"
 	case focusEditor:
-		return "QUERY EDITOR  Ctrl+Enter run  ·  type SQL"
+		return "QUERY EDITOR  Enter/Ctrl+Enter run  ·  Alt+Enter newline"
 	case focusResults:
 		return "RESULTS  Up/Down scroll"
 	case focusHistory:
@@ -417,7 +428,7 @@ func (m model) historyView() string {
 }
 
 func (m model) helpView() string {
-	lines := []string{"KEYMAP", "", "tab / shift+tab   move focus", "ctrl+left/right   switch query tab", "ctrl+n             new query tab", "ctrl+w             close query tab", "j / k              switch project", "ctrl+enter         execute query", "a                  add project", "?                  close help", "q                  quit outside editor", "ctrl+c             quit"}
+	lines := []string{"KEYMAP", "", "tab / shift+tab   move focus", "ctrl+left/right   switch query tab", "ctrl+n             new query tab", "ctrl+w             close query tab", "j / k              switch project", "enter              run query fallback", "ctrl+enter         run query", "alt+enter          insert newline", "a                  add project", "?                  close help", "q                  quit outside editor", "ctrl+c             quit"}
 	return lipgloss.NewStyle().Width(50).Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(2).Render(strings.Join(lines, "\n"))
 }
 

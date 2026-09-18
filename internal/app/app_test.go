@@ -130,6 +130,24 @@ func TestCtrlJRecordsQueryRun(t *testing.T) {
 	}
 }
 
+func TestEnterFallbackRunsQueryAndAltEnterAddsNewline(t *testing.T) {
+	state := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}))
+	updated, command := state.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	state = updated.(model)
+	if command == nil || len(state.tabs[0].history) != 1 {
+		t.Fatalf("expected Enter to run a query fallback: command=%v history=%d", command != nil, len(state.tabs[0].history))
+	}
+
+	state.tabs[0].editor.SetValue("SELECT 1")
+	updated, command = state.Update(tea.KeyMsg{Type: tea.KeyEnter, Alt: true})
+	state = updated.(model)
+	if command != nil || !contains(state.tabs[0].editor.Value(), "SELECT 1\n") {
+		t.Fatalf("expected Alt+Enter to insert a newline: command=%v query=%q", command != nil, state.tabs[0].editor.Value())
+	}
+}
+
 func TestQueryTabsCanBeAddedSwitchedAndClosed(t *testing.T) {
 	state := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
 		return bigquery.Result{}, nil
