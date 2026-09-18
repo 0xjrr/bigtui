@@ -18,9 +18,13 @@ type Project struct {
 }
 
 type Resource struct {
-	Name     string
-	Kind     string
-	Children []Resource
+	Name           string
+	Kind           string
+	Children       []Resource
+	Columns        []string
+	Preview        [][]string
+	ViewQuery      string
+	ExternalSource []string
 }
 
 func MockProjects() []Project {
@@ -30,7 +34,7 @@ func MockProjects() []Project {
 			Name:     "Sandbox Analytics",
 			Location: "US",
 			Resources: []Resource{
-				{Name: "events", Kind: "dataset", Children: []Resource{{Name: "customers", Kind: "table"}, {Name: "customer_order_totals", Kind: "view"}, {Name: "partner_feed", Kind: "external"}}},
+				{Name: "events", Kind: "dataset", Children: []Resource{{Name: "customers", Kind: "table", Columns: []string{"customer_id", "name", "segment"}, Preview: [][]string{{"1", "Ada Lovelace", "enterprise"}}}, {Name: "customer_order_totals", Kind: "view", ViewQuery: "SELECT customer_id, name, SUM(amount) AS lifetime_value FROM orders GROUP BY customer_id, name"}, {Name: "partner_feed", Kind: "external", ExternalSource: []string{"gs://partner-feed/events/*.parquet"}}}},
 				{Name: "warehouse", Kind: "dataset", Children: []Resource{{Name: "orders", Kind: "table"}}},
 			},
 		},
@@ -94,7 +98,30 @@ func Load(ctx context.Context) ([]Project, error) {
 				} else if err == nil && metadata.ViewQuery != "" {
 					kind = "view"
 				}
-				resource.Children = append(resource.Children, Resource{Name: table.TableID, Kind: kind})
+				child := Resource{Name: table.TableID, Kind: kind}
+				if err == nil {
+					child.ViewQuery = metadata.ViewQuery
+					if metadata.ExternalDataConfig != nil {
+						child.ExternalSource = append(child.ExternalSource, metadata.ExternalDataConfig.SourceURIs...)
+					} else {
+						for _, field := range metadata.Schema {
+							child.Columns = append(child.Columns, field.Name)
+						}
+						rows := table.Read(ctx)
+						for len(child.Preview) < 5 {
+							var values []cloudbigquery.Value
+							if readErr := rows.Next(&values); readErr != nil {
+								break
+							}
+							preview := make([]string, len(values))
+							for valueIndex, value := range values {
+								preview[valueIndex] = fmt.Sprint(value)
+							}
+							child.Preview = append(child.Preview, preview)
+						}
+					}
+				}
+				resource.Children = append(resource.Children, child)
 			}
 			projects[index].Resources = append(projects[index].Resources, resource)
 		}

@@ -97,6 +97,16 @@ func TestEnterOpensResourceInfoModal(t *testing.T) {
 	if !state.showInfo || !contains(state.infoView(), "customer_order_totals") {
 		t.Fatal("enter should show selected child information")
 	}
+	state.showInfo = false
+	state.selectedChild = 0
+	state.showInfo = true
+	if !contains(state.infoView(), "Ada Lovelace") || !contains(state.infoView(), "Preview") {
+		t.Fatal("table information should include its data preview")
+	}
+	state.selectedChild = 2
+	if !contains(state.infoView(), "gs://partner-feed/events/*.parquet") {
+		t.Fatal("external table information should include its source")
+	}
 }
 
 func TestQQuitsFromWorkspace(t *testing.T) {

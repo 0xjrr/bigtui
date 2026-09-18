@@ -640,6 +640,25 @@ func (m model) infoView() string {
 			title = strings.ToUpper(child.Kind)
 			name = child.Name
 			details = []string{"Project  " + m.projects[m.active].ID, "Dataset  " + dataset.Name, "Type     " + child.Kind}
+			if len(child.ViewQuery) > 0 {
+				details = append(details, "", "Query")
+				for _, line := range strings.Split(child.ViewQuery, "\n") {
+					details = append(details, "  "+truncate(line, 58))
+				}
+			}
+			if len(child.ExternalSource) > 0 {
+				details = append(details, "", "External source")
+				for _, source := range child.ExternalSource {
+					details = append(details, "  "+truncate(source, 58))
+				}
+			}
+			if len(child.Columns) > 0 {
+				details = append(details, "", "Preview")
+				details = append(details, "  "+strings.Join(child.Columns, " | "))
+				for _, row := range child.Preview {
+					details = append(details, "  "+strings.Join(row, " | "))
+				}
+			}
 		}
 	}
 	lines := []string{panelTitle(title), "", lipgloss.NewStyle().Foreground(ink).Bold(true).Render(name), ""}
