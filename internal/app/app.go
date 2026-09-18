@@ -681,9 +681,7 @@ func (m model) infoLines() []string {
 			details = []string{"Project  " + m.projects[m.active].ID, "Dataset  " + dataset.Name, "Type     " + child.Kind}
 			if len(child.ViewQuery) > 0 {
 				details = append(details, "", "Query")
-				for _, line := range strings.Split(child.ViewQuery, "\n") {
-					details = append(details, "  "+line)
-				}
+				details = append(details, "  "+child.ViewQuery)
 			}
 			if len(child.ExternalSource) > 0 {
 				details = append(details, "", "External source")

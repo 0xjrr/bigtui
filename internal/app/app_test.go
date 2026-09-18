@@ -126,6 +126,20 @@ func TestPreviewIsStructuredAndModalFillsTerminal(t *testing.T) {
 	}
 }
 
+func TestViewQueryRemainsOneStyledBlock(t *testing.T) {
+	state := initialModelWithMock(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}), true)
+	state.selectedDataset = 0
+	state.selectedChild = 1
+	state.showInfo = true
+	lines := state.infoLines()
+	joined := strings.Join(lines, "\n")
+	if !contains(joined, "SELECT customer_id") || !contains(joined, "GROUP BY customer_id") {
+		t.Fatalf("view query block was not preserved: %q", joined)
+	}
+}
+
 func TestQQuitsFromWorkspace(t *testing.T) {
 	model := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
 		return bigquery.Result{}, nil
