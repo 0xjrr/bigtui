@@ -35,6 +35,33 @@ func TestMockInitializerLoadsFixtureCatalog(t *testing.T) {
 	}
 }
 
+func TestProjectsTreeExpandsAndSelectsDatasets(t *testing.T) {
+	state := initialModelWithMock(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}), true)
+	state.focus = focusProjects
+	updated, _ := state.Update(tea.KeyMsg{Type: tea.KeyRight})
+	state = updated.(model)
+	if !state.expanded[0] {
+		t.Fatal("right should expand the selected project")
+	}
+	updated, _ = state.Update(tea.KeyMsg{Type: tea.KeyDown})
+	state = updated.(model)
+	if state.selectedDataset < 0 || state.projects[state.active].Resources[state.selectedDataset].Kind != "dataset" {
+		t.Fatalf("down should select a dataset: project=%d resource=%d", state.active, state.selectedDataset)
+	}
+	updated, _ = state.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	state = updated.(model)
+	if state.selectedDataset != -1 || !state.expanded[0] {
+		t.Fatal("left from a dataset should return to its expanded project")
+	}
+	updated, _ = state.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	state = updated.(model)
+	if state.expanded[0] {
+		t.Fatal("left from a project should collapse it")
+	}
+}
+
 func TestQQuitsFromWorkspace(t *testing.T) {
 	model := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
 		return bigquery.Result{}, nil

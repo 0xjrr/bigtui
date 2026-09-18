@@ -48,16 +48,18 @@ type queryTab struct {
 }
 
 type model struct {
-	client    bigquery.Client
-	projects  []project.Project
-	active    int
-	focus     focus
-	tabs      []queryTab
-	activeTab int
-	status    string
-	width     int
-	height    int
-	showHelp  bool
+	client          bigquery.Client
+	projects        []project.Project
+	active          int
+	focus           focus
+	tabs            []queryTab
+	activeTab       int
+	status          string
+	width           int
+	height          int
+	showHelp        bool
+	expanded        []bool
+	selectedDataset int
 }
 
 var (
@@ -100,8 +102,9 @@ func initialModelWithProjects(client bigquery.Client, projects []project.Project
 	tab.editor.Focus()
 	return model{
 		client: client, projects: projects, focus: focusEditor,
-		tabs:   []queryTab{tab},
-		status: "Ready. Ctrl+R runs the query.",
+		tabs:     []queryTab{tab},
+		status:   "Ready. Ctrl+R runs the query.",
+		expanded: make([]bool, len(projects)), selectedDataset: -1,
 	}
 }
 
@@ -199,18 +202,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 		case "j", "down":
-			if m.focus == focusProjects && m.active < len(m.projects)-1 {
-				m.active++
+			if m.focus == focusProjects {
+				m.moveProjectSelection(1)
 			}
 			if m.focus == focusHistory && m.tabs[m.activeTab].historyCursor > 0 {
 				m.tabs[m.activeTab].historyCursor--
 			}
 		case "k", "up":
-			if m.focus == focusProjects && m.active > 0 {
-				m.active--
+			if m.focus == focusProjects {
+				m.moveProjectSelection(-1)
 			}
 			if m.focus == focusHistory && m.tabs[m.activeTab].historyCursor < len(m.tabs[m.activeTab].history)-1 {
 				m.tabs[m.activeTab].historyCursor++
+			}
+		case "left":
+			if m.focus == focusProjects {
+				m.collapseProject()
+			}
+		case "right":
+			if m.focus == focusProjects {
+				m.expandProject()
 			}
 		}
 	}
@@ -233,6 +244,75 @@ func (m *model) applyFocus() {
 		m.tabs[m.activeTab].editor.Focus()
 	}
 	m.tabs[m.activeTab].results.SetCursor(0)
+}
+
+func (m *model) moveProjectSelection(direction int) {
+	if len(m.projects) == 0 {
+		return
+	}
+	if direction > 0 && m.selectedDataset < 0 && m.active < len(m.expanded) && m.expanded[m.active] {
+		datasets := m.datasetIndexes(m.active)
+		if len(datasets) > 0 {
+			m.selectedDataset = datasets[0]
+			return
+		}
+	}
+	if m.selectedDataset >= 0 {
+		datasets := m.datasetIndexes(m.active)
+		position := 0
+		for index, resourceIndex := range datasets {
+			if resourceIndex == m.selectedDataset {
+				position = index
+				break
+			}
+		}
+		if direction > 0 && position < len(datasets)-1 {
+			m.selectedDataset = datasets[position+1]
+			return
+		}
+		if direction < 0 && position > 0 {
+			m.selectedDataset = datasets[position-1]
+			return
+		}
+		if direction < 0 {
+			m.selectedDataset = -1
+			return
+		}
+	}
+	if direction > 0 && m.active < len(m.projects)-1 {
+		m.active++
+		m.selectedDataset = -1
+	}
+	if direction < 0 && m.active > 0 {
+		m.active--
+		m.selectedDataset = -1
+	}
+}
+
+func (m model) datasetIndexes(projectIndex int) []int {
+	indexes := []int{}
+	for index, resource := range m.projects[projectIndex].Resources {
+		if resource.Kind == "dataset" {
+			indexes = append(indexes, index)
+		}
+	}
+	return indexes
+}
+
+func (m *model) expandProject() {
+	if m.active >= 0 && m.active < len(m.expanded) {
+		m.expanded[m.active] = true
+	}
+}
+
+func (m *model) collapseProject() {
+	if m.selectedDataset >= 0 {
+		m.selectedDataset = -1
+		return
+	}
+	if m.active >= 0 && m.active < len(m.expanded) {
+		m.expanded[m.active] = false
+	}
 }
 
 func (m *model) addTab() {
@@ -397,7 +477,7 @@ func (m model) projectView() string {
 	var lines []string
 	for i, item := range m.projects {
 		marker := "  "
-		if i == m.active {
+		if i == m.active && m.selectedDataset < 0 {
 			marker = "▸ "
 		}
 		name := item.Name
@@ -409,11 +489,21 @@ func (m model) projectView() string {
 			line = lipgloss.NewStyle().Foreground(accent).Bold(true).Render(line)
 		}
 		lines = append(lines, line)
-		lines = append(lines, lipgloss.NewStyle().Foreground(muted).Render("    "+truncate(item.ID, 18)))
-	}
-	for _, resource := range m.projects[m.active].Resources {
-		if resource.Kind == "dataset" {
-			lines = append(lines, "  dataset  "+truncate(resource.Name, 18))
+		if i < len(m.expanded) && m.expanded[i] {
+			for resourceIndex, resource := range item.Resources {
+				if resource.Kind != "dataset" {
+					continue
+				}
+				marker := "    "
+				if i == m.active && resourceIndex == m.selectedDataset {
+					marker = "  ▸ "
+				}
+				line := marker + truncate(resource.Name, 18)
+				if i == m.active && resourceIndex == m.selectedDataset {
+					line = lipgloss.NewStyle().Foreground(accent).Bold(true).Render(line)
+				}
+				lines = append(lines, line)
+			}
 		}
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
