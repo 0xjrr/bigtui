@@ -90,6 +90,12 @@ func (c *CloudClient) Query(ctx context.Context, projectID, sql string) (Result,
 		if err != nil {
 			return Result{}, err
 		}
+		if result.Total == 0 && len(result.Columns) == 0 && len(it.Schema) > 0 {
+			result.Columns = make([]string, len(it.Schema))
+			for index, field := range it.Schema {
+				result.Columns[index] = field.Name
+			}
+		}
 		if result.Total == 0 && len(result.Columns) == 0 {
 			result.Columns = make([]string, len(values))
 			for i := range values {

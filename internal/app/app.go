@@ -573,7 +573,7 @@ func (m model) projectView() string {
 				if i == m.active && resourceIndex == m.selectedDataset {
 					marker = "  ▸ "
 				}
-				line := marker + truncate(resource.Name, 18)
+				line := marker + truncate(resource.Name, 16)
 				if i == m.active && resourceIndex == m.selectedDataset {
 					line = lipgloss.NewStyle().Foreground(accent).Bold(true).Render(line)
 				}
@@ -584,7 +584,7 @@ func (m model) projectView() string {
 						if resourceIndex == m.selectedDataset && childIndex == m.selectedChild {
 							childMarker = "      ▸ "
 						}
-						childLine := childMarker + truncate(child.Name, 18)
+						childLine := childMarker + truncate(child.Name, 12)
 						if resourceIndex == m.selectedDataset && childIndex == m.selectedChild {
 							childLine = lipgloss.NewStyle().Foreground(accent).Bold(true).Render(childLine)
 						}
