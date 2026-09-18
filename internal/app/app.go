@@ -256,7 +256,7 @@ func (m model) View() string {
 }
 
 func (m model) tabView() string {
-	items := make([]string, 0, len(m.tabs)+1)
+	items := make([]string, 0, len(m.tabs))
 	for index, tab := range m.tabs {
 		label := fmt.Sprintf("%d %s  ×", index+1, tab.title)
 		style := lipgloss.NewStyle().Foreground(muted).Padding(0, 1)
@@ -265,7 +265,6 @@ func (m model) tabView() string {
 		}
 		items = append(items, style.Render(label))
 	}
-	items = append(items, lipgloss.NewStyle().Foreground(accent).Padding(0, 1).Render("New tab · Ctrl+N"))
 	return lipgloss.JoinHorizontal(lipgloss.Top, items...)
 }
 
