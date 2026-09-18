@@ -143,6 +143,19 @@ func TestQueryTabsCanBeAddedSwitchedAndClosed(t *testing.T) {
 	}
 }
 
+func TestNewTabUsesCurrentTerminalLayout(t *testing.T) {
+	state := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}))
+	updated, _ := state.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	state = updated.(model)
+	firstHeight := lipgloss.Height(state.View())
+	state.addTab()
+	if got := lipgloss.Height(state.View()); got != firstHeight {
+		t.Fatalf("new tab changed workspace height from %d to %d", firstHeight, got)
+	}
+}
+
 func contains(value, part string) bool {
 	for index := 0; index+len(part) <= len(value); index++ {
 		if value[index:index+len(part)] == part {

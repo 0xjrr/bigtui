@@ -89,9 +89,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		for index := range m.tabs {
-			m.tabs[index].editor.SetWidth(max(30, msg.Width-34))
-			m.tabs[index].results.SetWidth(max(30, msg.Width-34))
-			m.tabs[index].results.SetHeight(max(3, msg.Height-20))
+			m.resizeTab(index)
 		}
 	case queryFinished:
 		if msg.tab < 0 || msg.tab >= len(m.tabs) {
@@ -187,8 +185,18 @@ func (m *model) addTab() {
 	tab := newQueryTab(title, "")
 	m.tabs = append(m.tabs, tab)
 	m.activeTab = len(m.tabs) - 1
+	m.resizeTab(m.activeTab)
 	m.applyFocus()
 	m.status = "Opened " + title
+}
+
+func (m *model) resizeTab(index int) {
+	if index < 0 || index >= len(m.tabs) {
+		return
+	}
+	m.tabs[index].editor.SetWidth(max(30, m.width-34))
+	m.tabs[index].results.SetWidth(max(30, m.width-34))
+	m.tabs[index].results.SetHeight(max(3, m.height-20))
 }
 
 func (m *model) closeTab() {
