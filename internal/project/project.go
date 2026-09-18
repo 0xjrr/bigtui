@@ -2,10 +2,10 @@ package project
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os/exec"
 	"strings"
+
+	cloudresourcemanager "google.golang.org/api/cloudresourcemanager/v1"
 )
 
 type Project struct {
@@ -46,28 +46,21 @@ func MockProjects() []Project {
 	}
 }
 
-type gcloudProject struct {
-	ProjectID     string `json:"projectId"`
-	Name          string `json:"name"`
-	ProjectNumber string `json:"projectNumber"`
-}
-
 func Load(ctx context.Context) ([]Project, error) {
-	command := exec.CommandContext(ctx, "gcloud", "projects", "list", "--format=json")
-	output, err := command.Output()
+	service, err := cloudresourcemanager.NewService(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("create Google Cloud project service: %w", err)
+	}
+	response, err := service.Projects.List().Do()
 	if err != nil {
 		return nil, fmt.Errorf("list Google Cloud projects: %w", err)
 	}
-	var listed []gcloudProject
-	if err := json.Unmarshal(output, &listed); err != nil {
-		return nil, fmt.Errorf("decode Google Cloud projects: %w", err)
-	}
-	projects := make([]Project, 0, len(listed))
-	for _, item := range listed {
-		if strings.TrimSpace(item.ProjectID) == "" {
+	projects := make([]Project, 0, len(response.Projects))
+	for _, item := range response.Projects {
+		if strings.TrimSpace(item.ProjectId) == "" {
 			continue
 		}
-		projects = append(projects, Project{ID: item.ProjectID, Name: item.Name})
+		projects = append(projects, Project{ID: item.ProjectId, Name: item.Name})
 	}
 	return projects, nil
 }
