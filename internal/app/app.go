@@ -475,7 +475,7 @@ func (m model) projectView() string {
 			line = lipgloss.NewStyle().Foreground(accent).Bold(true).Render(line)
 		}
 		lines = append(lines, line)
-		lines = append(lines, lipgloss.NewStyle().Foreground(muted).Render("    "+item.ID))
+		lines = append(lines, lipgloss.NewStyle().Foreground(muted).Render("    "+truncate(item.ID, 18)))
 	}
 	for _, resource := range m.projects[m.active].Resources {
 		lines = append(lines, "  "+resource.Kind+"  "+resource.Name)
@@ -541,6 +541,13 @@ func (m model) historyView() string {
 
 func panelTitle(title string) string {
 	return lipgloss.NewStyle().Foreground(accent).Bold(true).Render(title)
+}
+
+func truncate(value string, width int) string {
+	if width < 4 || len(value) <= width {
+		return value
+	}
+	return value[:width-3] + "..."
 }
 
 func (m model) helpView() string {
