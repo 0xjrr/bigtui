@@ -130,21 +130,20 @@ func TestCtrlJRecordsQueryRun(t *testing.T) {
 	}
 }
 
-func TestEnterFallbackRunsQueryAndAltEnterAddsNewline(t *testing.T) {
+func TestEnterAddsNewlineAndCtrlRRunsQuery(t *testing.T) {
 	state := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
 		return bigquery.Result{}, nil
 	}))
 	updated, command := state.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	state = updated.(model)
-	if command == nil || len(state.tabs[0].history) != 1 {
-		t.Fatalf("expected Enter to run a query fallback: command=%v history=%d", command != nil, len(state.tabs[0].history))
+	if command == nil || len(state.tabs[0].history) != 0 || !contains(state.tabs[0].editor.Value(), "ORDER BY rows DESC\n") {
+		t.Fatalf("expected Enter to insert a newline: command=%v history=%d query=%q", command != nil, len(state.tabs[0].history), state.tabs[0].editor.Value())
 	}
 
-	state.tabs[0].editor.SetValue("SELECT 1")
-	updated, command = state.Update(tea.KeyMsg{Type: tea.KeyEnter, Alt: true})
+	updated, command = state.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
 	state = updated.(model)
-	if command != nil || !contains(state.tabs[0].editor.Value(), "SELECT 1\n") {
-		t.Fatalf("expected Alt+Enter to insert a newline: command=%v query=%q", command != nil, state.tabs[0].editor.Value())
+	if command == nil || len(state.tabs[0].history) != 1 {
+		t.Fatalf("expected Ctrl+R to run a query: command=%v history=%d", command != nil, len(state.tabs[0].history))
 	}
 }
 
