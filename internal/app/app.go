@@ -26,19 +26,26 @@ const (
 type queryFinished struct {
 	result bigquery.Result
 	err    error
+	tab    int
+}
+
+type queryTab struct {
+	title   string
+	editor  textarea.Model
+	results table.Model
 }
 
 type model struct {
-	client   bigquery.Client
-	projects []project.Project
-	active   int
-	focus    focus
-	editor   textarea.Model
-	results  table.Model
-	status   string
-	width    int
-	height   int
-	showHelp bool
+	client    bigquery.Client
+	projects  []project.Project
+	active    int
+	focus     focus
+	tabs      []queryTab
+	activeTab int
+	status    string
+	width     int
+	height    int
+	showHelp  bool
 }
 
 var (
@@ -54,21 +61,25 @@ func New(client bigquery.Client) *tea.Program {
 }
 
 func initialModel(client bigquery.Client) model {
+	tab := newQueryTab("Query 1", "SELECT project_id, COUNT(*) AS rows\nFROM `demo-analytics.region-us.INFORMATION_SCHEMA.TABLES`\nGROUP BY project_id\nORDER BY rows DESC")
+	tab.editor.Focus()
+	return model{
+		client: client, projects: project.Defaults, focus: focusEditor,
+		tabs:   []queryTab{tab},
+		status: "Ready. Ctrl+Enter runs the query.",
+	}
+}
+
+func newQueryTab(title, sql string) queryTab {
 	editor := textarea.New()
 	editor.Placeholder = "Write SQL..."
-	editor.SetValue("SELECT project_id, COUNT(*) AS rows\nFROM `demo-analytics.region-us.INFORMATION_SCHEMA.TABLES`\nGROUP BY project_id\nORDER BY rows DESC")
+	editor.SetValue(sql)
 	editor.Prompt = "  "
 	editor.CharLimit = 10000
 	editor.ShowLineNumbers = true
 	editor.SetHeight(7)
-	editor.Focus()
-
 	resultTable := table.New(table.WithColumns([]table.Column{{Title: "Result", Width: 22}}), table.WithFocused(false))
-	return model{
-		client: client, projects: project.Defaults, focus: focusEditor,
-		editor: editor, results: resultTable,
-		status: "Ready. Ctrl+Enter runs the query.",
-	}
+	return queryTab{title: title, editor: editor, results: resultTable}
 }
 
 func (m model) Init() tea.Cmd { return textarea.Blink }
@@ -77,15 +88,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		m.editor.SetWidth(max(30, msg.Width-34))
-		m.results.SetWidth(max(30, msg.Width-34))
-		m.results.SetHeight(max(3, msg.Height-18))
+		for index := range m.tabs {
+			m.tabs[index].editor.SetWidth(max(30, msg.Width-34))
+			m.tabs[index].results.SetWidth(max(30, msg.Width-34))
+			m.tabs[index].results.SetHeight(max(3, msg.Height-20))
+		}
 	case queryFinished:
+		if msg.tab < 0 || msg.tab >= len(m.tabs) {
+			return m, nil
+		}
 		if msg.err != nil {
 			m.status = "Query failed: " + msg.err.Error()
 		} else {
 			m.status = fmt.Sprintf("Returned %d rows", msg.result.Total)
-			m.setResult(msg.result)
+			m.setResult(msg.tab, msg.result)
 		}
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" || msg.String() == "q" {
@@ -99,6 +115,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		switch msg.String() {
+		case "ctrl+n":
+			m.addTab()
+			return m, nil
+		case "ctrl+w":
+			m.closeTab()
+			return m, nil
+		case "alt+left", "ctrl+shift+tab":
+			m.switchTab(-1)
+			return m, nil
+		case "alt+right", "ctrl+tab":
+			m.switchTab(1)
+			return m, nil
 		case "tab":
 			m.focus = (m.focus + 1) % 4
 			m.applyFocus()
@@ -128,32 +156,67 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	var cmd tea.Cmd
 	if m.focus == focusEditor {
-		m.editor, cmd = m.editor.Update(msg)
+		m.tabs[m.activeTab].editor, cmd = m.tabs[m.activeTab].editor.Update(msg)
 	} else if m.focus == focusResults {
-		m.results, cmd = m.results.Update(msg)
+		m.tabs[m.activeTab].results, cmd = m.tabs[m.activeTab].results.Update(msg)
 	}
 	return m, cmd
 }
 
 func (m *model) applyFocus() {
-	m.editor.Blur()
-	m.results.Blur()
-	if m.focus == focusEditor {
-		m.editor.Focus()
+	for index := range m.tabs {
+		m.tabs[index].editor.Blur()
+		m.tabs[index].results.Blur()
 	}
-	m.results.SetCursor(0)
+	if m.focus == focusEditor {
+		m.tabs[m.activeTab].editor.Focus()
+	}
+	m.tabs[m.activeTab].results.SetCursor(0)
+}
+
+func (m *model) addTab() {
+	title := fmt.Sprintf("Query %d", len(m.tabs)+1)
+	tab := newQueryTab(title, "")
+	m.tabs = append(m.tabs, tab)
+	m.activeTab = len(m.tabs) - 1
+	m.applyFocus()
+	m.status = "Opened " + title
+}
+
+func (m *model) closeTab() {
+	if len(m.tabs) == 1 {
+		m.status = "Cannot close the last tab."
+		return
+	}
+	closed := m.tabs[m.activeTab].title
+	m.tabs = append(m.tabs[:m.activeTab], m.tabs[m.activeTab+1:]...)
+	if m.activeTab >= len(m.tabs) {
+		m.activeTab = len(m.tabs) - 1
+	}
+	m.applyFocus()
+	m.status = "Closed " + closed
+}
+
+func (m *model) switchTab(direction int) {
+	if len(m.tabs) < 2 {
+		return
+	}
+	m.activeTab = (m.activeTab + direction + len(m.tabs)) % len(m.tabs)
+	m.applyFocus()
+	m.status = "Switched to " + m.tabs[m.activeTab].title
 }
 
 func (m model) runQuery() tea.Cmd {
 	projectID := m.projects[m.active].ID
-	sql := m.editor.Value()
+	tab := m.activeTab
+	sql := m.tabs[tab].editor.Value()
 	return func() tea.Msg {
 		result, err := m.client.Query(context.Background(), projectID, sql)
-		return queryFinished{result: result, err: err}
+		return queryFinished{result: result, err: err, tab: tab}
 	}
 }
 
-func (m *model) setResult(result bigquery.Result) {
+func (m *model) setResult(tabIndex int, result bigquery.Result) {
 	columns := make([]table.Column, len(result.Columns))
 	for i, column := range result.Columns {
 		columns[i] = table.Column{Title: column, Width: 18}
@@ -162,8 +225,8 @@ func (m *model) setResult(result bigquery.Result) {
 	for i, row := range result.Rows {
 		rows[i] = table.Row(row.Values)
 	}
-	m.results.SetColumns(columns)
-	m.results.SetRows(rows)
+	m.tabs[tabIndex].results.SetColumns(columns)
+	m.tabs[tabIndex].results.SetRows(rows)
 }
 
 func (m model) View() string {
@@ -171,6 +234,7 @@ func (m model) View() string {
 		return "Starting bigtui..."
 	}
 	header := lipgloss.NewStyle().Foreground(ink).Bold(true).Render("BIGTUI") + "  " + lipgloss.NewStyle().Foreground(muted).Render("BigQuery workspace")
+	tabStrip := m.tabView()
 	focusIndicator := lipgloss.NewStyle().Foreground(accent).Bold(true).Render("FOCUS: " + focusLabel(m.focus))
 	projectView := m.projectView()
 	main := lipgloss.JoinVertical(lipgloss.Left, m.editorView(), m.resultView())
@@ -180,11 +244,25 @@ func (m model) View() string {
 	}
 	footer := footerStyle.Render("tab focus  •  ctrl+enter run  •  a add project  •  ? help  •  q quit")
 	status := lipgloss.NewStyle().Foreground(accent).Render("● " + m.status)
-	view := lipgloss.JoinVertical(lipgloss.Left, header, focusIndicator, "", lipgloss.JoinHorizontal(lipgloss.Top, projectView, "  ", main), "", status, footer)
+	view := lipgloss.JoinVertical(lipgloss.Left, header, tabStrip, focusIndicator, "", lipgloss.JoinHorizontal(lipgloss.Top, projectView, "  ", main), "", status, footer)
 	if m.showHelp {
 		return m.helpView()
 	}
 	return view
+}
+
+func (m model) tabView() string {
+	items := make([]string, 0, len(m.tabs)+1)
+	for index, tab := range m.tabs {
+		label := fmt.Sprintf("%d %s  ×", index+1, tab.title)
+		style := lipgloss.NewStyle().Foreground(muted).Padding(0, 1)
+		if index == m.activeTab {
+			style = style.Foreground(ink).Bold(true).Background(panel).Underline(true)
+		}
+		items = append(items, style.Render(label))
+	}
+	items = append(items, lipgloss.NewStyle().Foreground(accent).Padding(0, 1).Render("+ Ctrl+N"))
+	return lipgloss.JoinHorizontal(lipgloss.Top, items...)
 }
 
 func focusLabel(current focus) string {
@@ -216,21 +294,21 @@ func (m model) projectView() string {
 		lines = append(lines, line)
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, append([]string{lipgloss.NewStyle().Foreground(muted).Bold(true).Render("PROJECTS")}, lines...)...)
-	return lipgloss.NewStyle().Width(24).Height(max(10, m.height-10)).Border(lipgloss.RoundedBorder()).BorderForeground(border).Padding(1).Render(content)
+	return lipgloss.NewStyle().Width(24).Height(max(10, m.height-12)).Border(lipgloss.RoundedBorder()).BorderForeground(border).Padding(1).Render(content)
 }
 
 func (m model) editorView() string {
 	title := lipgloss.NewStyle().Foreground(accent).Bold(true).Render("QUERY EDITOR")
-	return lipgloss.JoinVertical(lipgloss.Left, title, lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(border).Background(panel).Render(m.editor.View()))
+	return lipgloss.JoinVertical(lipgloss.Left, title, lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(border).Background(panel).Render(m.tabs[m.activeTab].editor.View()))
 }
 
 func (m model) resultView() string {
 	title := lipgloss.NewStyle().Foreground(accent).Bold(true).Render("RESULTS")
-	return lipgloss.JoinVertical(lipgloss.Left, title, m.results.View())
+	return lipgloss.JoinVertical(lipgloss.Left, title, m.tabs[m.activeTab].results.View())
 }
 
 func (m model) helpView() string {
-	lines := []string{"KEYMAP", "", "tab / shift+tab   move focus", "j / k              switch project", "ctrl+enter         execute query", "a                  add project", "?                  close help", "ctrl+c             quit"}
+	lines := []string{"KEYMAP", "", "tab / shift+tab   move focus", "alt+left/right    switch query tab", "ctrl+n             new query tab", "ctrl+w             close query tab", "j / k              switch project", "ctrl+enter         execute query", "a                  add project", "?                  close help", "ctrl+c             quit"}
 	return lipgloss.NewStyle().Width(50).Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(2).Render(strings.Join(lines, "\n"))
 }
 
