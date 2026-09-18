@@ -20,6 +20,14 @@ go run ./cmd/bigtui --mock
 
 The fixture catalog contains sandbox projects with datasets. It is opt-in and is never used as the default project list.
 
+To create real BigQuery demo data in an accessible project, run the standalone seed utility:
+
+```sh
+go run ./cmd/bigtui-seed --project YOUR_PROJECT_ID
+```
+
+This creates or replaces the `bigtui_demo` dataset, `customers` and `orders` tables, and the `customer_order_totals` view. It is safe to rerun for that demo dataset, but it replaces those three named resources.
+
 ## Architecture
 
 - `internal/app`: Bubble Tea model and keyboard-driven workspace.
