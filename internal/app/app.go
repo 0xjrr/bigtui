@@ -304,9 +304,9 @@ func (m model) View() string {
 	header := lipgloss.NewStyle().Foreground(ink).Bold(true).Render("BIGTUI") + "  " + lipgloss.NewStyle().Foreground(muted).Render("BigQuery workspace")
 	tabStrip := m.tabView()
 	focusIndicator := lipgloss.NewStyle().Foreground(accent).Bold(true).Render("FOCUS: " + focusLabel(m.focus))
-	projectView := m.projectView()
+	projectView := lipgloss.JoinVertical(lipgloss.Left, panelTitle("PROJECTS"), m.projectView())
 	main := lipgloss.JoinVertical(lipgloss.Left, m.editorView(), m.resultView())
-	historyView := m.historyView()
+	historyView := lipgloss.JoinVertical(lipgloss.Left, panelTitle("RUN HISTORY"), m.historyView())
 	footer := m.shortcutView()
 	status := lipgloss.NewStyle().Foreground(accent).Render("● " + m.status)
 	workspace := lipgloss.JoinHorizontal(lipgloss.Top, projectView, "  ", main, "  ", historyView)
@@ -388,8 +388,8 @@ func (m model) projectView() string {
 		}
 		lines = append(lines, line)
 	}
-	content := lipgloss.JoinVertical(lipgloss.Left, append([]string{lipgloss.NewStyle().Foreground(muted).Bold(true).Render("PROJECTS")}, lines...)...)
-	return lipgloss.NewStyle().Width(24).Height(max(10, m.height-12)).Border(lipgloss.RoundedBorder()).BorderForeground(border).Padding(1).Render(content)
+	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
+	return lipgloss.NewStyle().Width(24).Height(max(10, m.height-13)).Border(lipgloss.RoundedBorder()).BorderForeground(border).Padding(1).Render(content)
 }
 
 func (m model) editorView() string {
@@ -403,7 +403,7 @@ func (m model) resultView() string {
 }
 
 func (m model) historyView() string {
-	lines := []string{"RUN HISTORY"}
+	lines := []string{}
 	for index := len(m.tabs[m.activeTab].history) - 1; index >= 0; index-- {
 		record := m.tabs[m.activeTab].history[index]
 		query := strings.Join(strings.Fields(record.sql), " ")
@@ -420,11 +420,15 @@ func (m model) historyView() string {
 		}
 		lines = append(lines, line)
 	}
-	if len(lines) == 1 {
+	if len(lines) == 0 {
 		lines = append(lines, lipgloss.NewStyle().Foreground(muted).Render("  No runs yet"))
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	return lipgloss.NewStyle().Width(30).Height(max(10, m.height-12)).Border(lipgloss.RoundedBorder()).BorderForeground(border).Padding(1).Render(content)
+	return lipgloss.NewStyle().Width(30).Height(max(10, m.height-13)).Border(lipgloss.RoundedBorder()).BorderForeground(border).Padding(1).Render(content)
+}
+
+func panelTitle(title string) string {
+	return lipgloss.NewStyle().Foreground(accent).Bold(true).Render(title)
 }
 
 func (m model) helpView() string {
