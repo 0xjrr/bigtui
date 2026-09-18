@@ -20,19 +20,30 @@ const (
 	focusProjects focus = iota
 	focusEditor
 	focusResults
+	focusHistory
 	focusShortcuts
 )
 
 type queryFinished struct {
-	result bigquery.Result
-	err    error
-	tab    int
+	result  bigquery.Result
+	err     error
+	tab     int
+	history int
+}
+
+type runRecord struct {
+	sql     string
+	started time.Time
+	status  string
+	rows    uint64
 }
 
 type queryTab struct {
-	title   string
-	editor  textarea.Model
-	results table.Model
+	title         string
+	editor        textarea.Model
+	results       table.Model
+	history       []runRecord
+	historyCursor int
 }
 
 type model struct {
@@ -95,6 +106,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.tab < 0 || msg.tab >= len(m.tabs) {
 			return m, nil
 		}
+		if msg.history >= 0 && msg.history < len(m.tabs[msg.tab].history) {
+			if msg.err != nil {
+				m.tabs[msg.tab].history[msg.history].status = "failed"
+			} else {
+				m.tabs[msg.tab].history[msg.history].status = "done"
+				m.tabs[msg.tab].history[msg.history].rows = msg.result.Total
+			}
+		}
 		if msg.err != nil {
 			m.status = "Query failed: " + msg.err.Error()
 		} else {
@@ -128,19 +147,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch msg.String() {
 		case "tab":
-			m.focus = (m.focus + 1) % 4
+			m.focus = (m.focus + 1) % 5
 			m.applyFocus()
 			return m, nil
 		case "shift+tab":
-			m.focus = (m.focus + 3) % 4
+			m.focus = (m.focus + 4) % 5
 			m.applyFocus()
 			return m, nil
-		case "ctrl+enter":
+		case "ctrl+enter", "ctrl+j":
 			if m.focus != focusEditor {
 				break
 			}
 			m.status = "Running query against " + m.projects[m.active].ID + "..."
-			return m, m.runQuery()
+			historyIndex := m.recordQuery()
+			return m, m.runQuery(historyIndex)
 		case "a":
 			if m.focus != focusProjects {
 				break
@@ -149,13 +169,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.active = len(m.projects) - 1
 			m.status = "Added project placeholder; edit project configuration next."
 			return m, nil
+		case "enter":
+			if m.focus == focusHistory && len(m.tabs[m.activeTab].history) > 0 {
+				record := m.tabs[m.activeTab].history[m.tabs[m.activeTab].historyCursor]
+				m.tabs[m.activeTab].editor.SetValue(record.sql)
+				m.focus = focusEditor
+				m.applyFocus()
+				m.status = "Loaded query from run history"
+			}
 		case "j", "down":
 			if m.focus == focusProjects && m.active < len(m.projects)-1 {
 				m.active++
 			}
+			if m.focus == focusHistory && m.tabs[m.activeTab].historyCursor < len(m.tabs[m.activeTab].history)-1 {
+				m.tabs[m.activeTab].historyCursor++
+			}
 		case "k", "up":
 			if m.focus == focusProjects && m.active > 0 {
 				m.active--
+			}
+			if m.focus == focusHistory && m.tabs[m.activeTab].historyCursor > 0 {
+				m.tabs[m.activeTab].historyCursor--
 			}
 		}
 	}
@@ -194,8 +228,8 @@ func (m *model) resizeTab(index int) {
 	if index < 0 || index >= len(m.tabs) {
 		return
 	}
-	m.tabs[index].editor.SetWidth(max(30, m.width-34))
-	m.tabs[index].results.SetWidth(max(30, m.width-34))
+	m.tabs[index].editor.SetWidth(max(30, m.width-66))
+	m.tabs[index].results.SetWidth(max(30, m.width-66))
 	m.tabs[index].results.SetHeight(max(3, m.height-20))
 }
 
@@ -222,13 +256,20 @@ func (m *model) switchTab(direction int) {
 	m.status = "Switched to " + m.tabs[m.activeTab].title
 }
 
-func (m model) runQuery() tea.Cmd {
+func (m *model) recordQuery() int {
+	tab := &m.tabs[m.activeTab]
+	tab.history = append(tab.history, runRecord{sql: tab.editor.Value(), started: time.Now(), status: "running"})
+	tab.historyCursor = len(tab.history) - 1
+	return tab.historyCursor
+}
+
+func (m model) runQuery(historyIndex int) tea.Cmd {
 	projectID := m.projects[m.active].ID
 	tab := m.activeTab
 	sql := m.tabs[tab].editor.Value()
 	return func() tea.Msg {
 		result, err := m.client.Query(context.Background(), projectID, sql)
-		return queryFinished{result: result, err: err, tab: tab}
+		return queryFinished{result: result, err: err, tab: tab, history: historyIndex}
 	}
 }
 
@@ -254,9 +295,11 @@ func (m model) View() string {
 	focusIndicator := lipgloss.NewStyle().Foreground(accent).Bold(true).Render("FOCUS: " + focusLabel(m.focus))
 	projectView := m.projectView()
 	main := lipgloss.JoinVertical(lipgloss.Left, m.editorView(), m.resultView())
+	historyView := m.historyView()
 	footer := m.shortcutView()
 	status := lipgloss.NewStyle().Foreground(accent).Render("● " + m.status)
-	view := lipgloss.JoinVertical(lipgloss.Left, header, tabStrip, focusIndicator, "", lipgloss.JoinHorizontal(lipgloss.Top, projectView, "  ", main), "", status, footer)
+	workspace := lipgloss.JoinHorizontal(lipgloss.Top, projectView, "  ", main, "  ", historyView)
+	view := lipgloss.JoinVertical(lipgloss.Left, header, tabStrip, focusIndicator, "", workspace, "", status, footer)
 	if m.showHelp {
 		return m.helpView()
 	}
@@ -295,6 +338,8 @@ func focusShortcutsLabel(current focus) string {
 		return "QUERY EDITOR  Ctrl+Enter run  ·  type SQL"
 	case focusResults:
 		return "RESULTS  Up/Down scroll"
+	case focusHistory:
+		return "RUN HISTORY  Up/Down select  ·  Enter load"
 	case focusShortcuts:
 		return "SHORTCUTS  ? help  ·  Q quit"
 	default:
@@ -310,6 +355,8 @@ func focusLabel(current focus) string {
 		return "QUERY EDITOR"
 	case focusResults:
 		return "RESULTS"
+	case focusHistory:
+		return "RUN HISTORY"
 	case focusShortcuts:
 		return "SHORTCUTS"
 	default:
@@ -342,6 +389,31 @@ func (m model) editorView() string {
 func (m model) resultView() string {
 	title := lipgloss.NewStyle().Foreground(accent).Bold(true).Render("RESULTS")
 	return lipgloss.JoinVertical(lipgloss.Left, title, m.tabs[m.activeTab].results.View())
+}
+
+func (m model) historyView() string {
+	lines := []string{"RUN HISTORY"}
+	for index := len(m.tabs[m.activeTab].history) - 1; index >= 0; index-- {
+		record := m.tabs[m.activeTab].history[index]
+		query := strings.Join(strings.Fields(record.sql), " ")
+		if len(query) > 25 {
+			query = query[:25] + "..."
+		}
+		marker := "  "
+		if index == m.tabs[m.activeTab].historyCursor {
+			marker = "▸ "
+		}
+		line := fmt.Sprintf("%s%d %s [%s]", marker, index+1, query, record.status)
+		if index == m.tabs[m.activeTab].historyCursor {
+			line = lipgloss.NewStyle().Foreground(accent).Bold(true).Render(line)
+		}
+		lines = append(lines, line)
+	}
+	if len(lines) == 1 {
+		lines = append(lines, lipgloss.NewStyle().Foreground(muted).Render("  No runs yet"))
+	}
+	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
+	return lipgloss.NewStyle().Width(30).Height(max(10, m.height-12)).Border(lipgloss.RoundedBorder()).BorderForeground(border).Padding(1).Render(content)
 }
 
 func (m model) helpView() string {

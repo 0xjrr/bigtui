@@ -80,7 +80,7 @@ func TestFocusIndicatorCyclesThroughWorkspaceAreas(t *testing.T) {
 	state := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
 		return bigquery.Result{}, nil
 	}))
-	expected := []string{"QUERY EDITOR", "RESULTS", "SHORTCUTS", "PROJECTS"}
+	expected := []string{"QUERY EDITOR", "RESULTS", "RUN HISTORY", "SHORTCUTS", "PROJECTS"}
 	for _, label := range expected {
 		if got := focusLabel(state.focus); got != label {
 			t.Fatalf("expected focus label %q, got %q", label, got)
@@ -104,7 +104,7 @@ func TestShortcutFocusDoesNotResizeWorkspace(t *testing.T) {
 	if initialHeight > state.height {
 		t.Fatalf("workspace exceeds terminal height: %d > %d", initialHeight, state.height)
 	}
-	for index := 0; index < 2; index++ {
+	for index := 0; index < 3; index++ {
 		updated, _ := state.Update(tea.KeyMsg{Type: tea.KeyTab})
 		state = updated.(model)
 	}
@@ -113,6 +113,20 @@ func TestShortcutFocusDoesNotResizeWorkspace(t *testing.T) {
 	}
 	if got := lipgloss.Height(state.View()); got != initialHeight {
 		t.Fatalf("shortcut focus changed workspace height from %d to %d", initialHeight, got)
+	}
+}
+
+func TestCtrlJRecordsQueryRun(t *testing.T) {
+	state := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}))
+	updated, command := state.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	state = updated.(model)
+	if command == nil || len(state.tabs[0].history) != 1 {
+		t.Fatalf("expected ctrl+j/ctrl+enter to start a run: command=%v history=%d", command != nil, len(state.tabs[0].history))
+	}
+	if state.tabs[0].history[0].status != "running" {
+		t.Fatalf("unexpected run status: %q", state.tabs[0].history[0].status)
 	}
 }
 
