@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/xjrr/bigtui/internal/bigquery"
 )
 
@@ -56,6 +57,25 @@ func TestFocusIndicatorCyclesThroughWorkspaceAreas(t *testing.T) {
 		if command != nil {
 			t.Fatalf("tab should only change focus, got command %T", command)
 		}
+	}
+}
+
+func TestShortcutFocusDoesNotResizeWorkspace(t *testing.T) {
+	state := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}))
+	state.width = 120
+	state.height = 40
+	initialHeight := lipgloss.Height(state.View())
+	for index := 0; index < 2; index++ {
+		updated, _ := state.Update(tea.KeyMsg{Type: tea.KeyTab})
+		state = updated.(model)
+	}
+	if state.focus != focusShortcuts {
+		t.Fatalf("expected shortcut focus, got %s", focusLabel(state.focus))
+	}
+	if got := lipgloss.Height(state.View()); got != initialHeight {
+		t.Fatalf("shortcut focus changed workspace height from %d to %d", initialHeight, got)
 	}
 }
 

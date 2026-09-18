@@ -174,9 +174,9 @@ func (m model) View() string {
 	focusIndicator := lipgloss.NewStyle().Foreground(accent).Bold(true).Render("FOCUS: " + focusLabel(m.focus))
 	projectView := m.projectView()
 	main := lipgloss.JoinVertical(lipgloss.Left, m.editorView(), m.resultView())
-	footerStyle := lipgloss.NewStyle().Foreground(muted)
+	footerStyle := lipgloss.NewStyle().Foreground(muted).Border(lipgloss.RoundedBorder()).BorderForeground(panel).Padding(0, 1)
 	if m.focus == focusShortcuts {
-		footerStyle = footerStyle.Foreground(ink).Bold(true).Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(0, 1)
+		footerStyle = footerStyle.Foreground(ink).Bold(true).BorderForeground(accent)
 	}
 	footer := footerStyle.Render("tab focus  •  ctrl+enter run  •  a add project  •  ? help  •  q quit")
 	status := lipgloss.NewStyle().Foreground(accent).Render("● " + m.status)
