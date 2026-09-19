@@ -797,6 +797,61 @@ func TestFocusIndicatorCyclesThroughWorkspaceAreas(t *testing.T) {
 	}
 }
 
+func TestHelpModalShowsCompleteKeymapAndClosesWithoutQuitting(t *testing.T) {
+	state := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}))
+	state.width, state.height = 100, 24
+	state.focus = focusProjects
+	updated, command := state.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	state = updated.(model)
+	if command != nil || !state.showHelp {
+		t.Fatal("? should open the help modal without a command")
+	}
+	view := state.helpView()
+	for _, text := range []string{"GENERAL", "EXPLORER"} {
+		if !contains(view, text) {
+			t.Fatalf("help modal is missing %q: %q", text, view)
+		}
+	}
+	state.helpScroll = 10
+	view = state.helpView()
+	for _, text := range []string{"ctrl+e", "QUERY EDITOR"} {
+		if !contains(view, text) {
+			t.Fatalf("scrolled help modal is missing %q: %q", text, view)
+		}
+	}
+	state.helpScroll = 20
+	view = state.helpView()
+	for _, text := range []string{"COMPLETION", "RESULTS"} {
+		if !contains(view, text) {
+			t.Fatalf("middle help modal is missing %q: %q", text, view)
+		}
+	}
+	state.helpScroll = 30
+	view = state.helpView()
+	for _, text := range []string{"RUN HISTORY", "SEARCH"} {
+		if !contains(view, text) {
+			t.Fatalf("lower help modal is missing %q: %q", text, view)
+		}
+	}
+	state.helpScroll = 100
+	view = state.helpView()
+	for _, text := range []string{"RESOURCE INFO", "HELP", "Esc/?/q"} {
+		if !contains(view, text) {
+			t.Fatalf("bottom help modal is missing %q: %q", text, view)
+		}
+	}
+	if lipgloss.Width(view) > state.width || lipgloss.Height(view) > state.height {
+		t.Fatalf("help modal exceeded terminal: %dx%d in %dx%d", lipgloss.Width(view), lipgloss.Height(view), state.width, state.height)
+	}
+	updated, command = state.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	state = updated.(model)
+	if command != nil || state.showHelp {
+		t.Fatal("q should close help without quitting the TUI")
+	}
+}
+
 func TestShortcutFocusDoesNotResizeWorkspace(t *testing.T) {
 	state := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
 		return bigquery.Result{}, nil

@@ -113,6 +113,7 @@ type model struct {
 	width              int
 	height             int
 	showHelp           bool
+	helpScroll         int
 	expanded           []bool
 	selectedDataset    int
 	selectedChild      int
@@ -369,11 +370,39 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if m.showHelp {
+			switch msg.String() {
+			case "esc", "q", "?":
+				m.showHelp = false
+				m.helpScroll = 0
+				return m, nil
+			case "up", "k":
+				if m.helpScroll > 0 {
+					m.helpScroll--
+				}
+				return m, nil
+			case "down", "j":
+				m.helpScroll++
+				return m, nil
+			case "pgup":
+				m.helpScroll -= max(1, m.height/2)
+				if m.helpScroll < 0 {
+					m.helpScroll = 0
+				}
+				return m, nil
+			case "pgdown":
+				m.helpScroll += max(1, m.height/2)
+				return m, nil
+			default:
+				return m, nil
+			}
+		}
 		if msg.String() == "ctrl+c" || (msg.String() == "q" && m.focus != focusEditor) {
 			return m, tea.Quit
 		}
 		if msg.String() == "?" && m.focus != focusEditor {
 			m.showHelp = !m.showHelp
+			m.helpScroll = 0
 			return m, nil
 		}
 		if m.completionOpen && m.focus == focusEditor {
@@ -1895,8 +1924,76 @@ func formatValidationError(err error) string {
 }
 
 func (m model) helpView() string {
-	lines := []string{"KEYMAP", "", "ctrl+s             search all resources", "ctrl+h             show/hide hidden datasets", "ctrl+e             insert selected resource query", "editor             suggests completions as you type", "tab / shift+tab   move focus", "ctrl+left/right   switch query tab", "ctrl+n             new query tab", "ctrl+w             close query tab", "up/down            select project or resource", "left/right         expand or collapse", "enter              inspect resource / newline", "ctrl+r             run query", "ctrl+enter         run when supported", "?                  close help", "q                  quit outside editor", "ctrl+c             quit"}
-	return lipgloss.NewStyle().Width(50).Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(2).Render(strings.Join(lines, "\n"))
+	lines := []string{
+		panelTitle("GENERAL"),
+		"tab / shift+tab     move focus",
+		"ctrl+left/right     switch query tab",
+		"ctrl+shift+tab     switch query tab",
+		"ctrl+n             new query tab",
+		"ctrl+w             close query tab",
+		"ctrl+s             search resources",
+		"ctrl+c             quit",
+		"q                  quit outside editor",
+		"?                  open/close help",
+		"",
+		panelTitle("EXPLORER"),
+		"up/down            select project, dataset, table, or view",
+		"left/right         collapse or expand",
+		"ctrl+e             insert SELECT query for selected resource",
+		"ctrl+h             show/hide hidden datasets",
+		"enter              inspect selected resource",
+		"",
+		panelTitle("QUERY EDITOR"),
+		"typing             update autocomplete",
+		"ctrl+r             run query",
+		"ctrl+enter         run query",
+		"ctrl+j             run query",
+		"enter              insert newline",
+		"",
+		panelTitle("COMPLETION"),
+		"up/down            select suggestion",
+		"ctrl+k/ctrl+j      select suggestion",
+		"enter              accept suggestion",
+		"esc                close suggestions",
+		"left/right         close suggestions",
+		"",
+		panelTitle("RESULTS"),
+		"up/down            move through rows",
+		"left/right         move through columns",
+		"",
+		panelTitle("RUN HISTORY"),
+		"up/down            select run",
+		"enter              load selected query",
+		"",
+		panelTitle("SEARCH"),
+		"ctrl+s             open/close search",
+		"up/down            select result",
+		"ctrl+k/ctrl+j      select result",
+		"enter              select result",
+		"esc                close search",
+		"",
+		panelTitle("RESOURCE INFO"),
+		"up/down            scroll one line",
+		"pgup/pgdown        scroll one page",
+		"enter/esc/q        close info",
+		"",
+		panelTitle("HELP"),
+		"up/down            scroll help",
+		"pgup/pgdown        scroll one page",
+		"esc/?/q            close help and return to the TUI",
+	}
+	modalWidth := max(50, minInt(90, m.width-4))
+	modalHeight := max(12, m.height-4)
+	contentWidth := max(20, modalWidth-6)
+	contentHeight := max(1, modalHeight-6)
+	wrapped := wrapInfoLines(lines, contentWidth)
+	viewport := max(1, contentHeight-1)
+	maxScroll := max(0, len(wrapped)-viewport)
+	scroll := minInt(max(0, m.helpScroll), maxScroll)
+	end := minInt(len(wrapped), scroll+viewport)
+	visible := append([]string{}, wrapped[scroll:end]...)
+	visible = append(visible, "", lipgloss.NewStyle().Foreground(ink).Render("Up/Down scroll  ·  Esc/?/q close"))
+	return lipgloss.NewStyle().Width(max(1, modalWidth-2)).Height(max(1, modalHeight-2)).Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(2).Render(lipgloss.JoinVertical(lipgloss.Left, visible...))
 }
 
 func max(a, b int) int {
