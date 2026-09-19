@@ -425,6 +425,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "enter":
 				return m, m.acceptCompletion()
+			case "tab":
+				return m, m.acceptCompletion()
 			case "left", "right":
 				m.completionOpen = false
 				m.completionItems = nil

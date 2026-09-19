@@ -275,6 +275,31 @@ func TestTypingOpensCompletionAndEnterInserts(t *testing.T) {
 	}
 }
 
+func TestTabAcceptsHighlightedCompletionWithoutChangingFocus(t *testing.T) {
+	state := initialModelWithMock(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}), true)
+	state.focus = focusEditor
+	state.tabs[0].editor.SetValue("SELECT * FROM cus")
+	state.tabs[0].editor.CursorEnd()
+	state.completionItems = []completion.Item{{Label: "customers", InsertText: "customers"}}
+	state.completionCursor = 0
+	state.completionOpen = true
+
+	updated, _ := state.Update(tea.KeyMsg{Type: tea.KeyTab})
+	state = updated.(model)
+
+	if state.focus != focusEditor {
+		t.Fatalf("tab changed focus to %v, want editor", state.focus)
+	}
+	if state.completionOpen {
+		t.Fatal("tab should close the completion popup")
+	}
+	if got := state.tabs[0].editor.Value(); got != "SELECT * FROM customers" {
+		t.Fatalf("tab accepted completion as %q, want %q", got, "SELECT * FROM customers")
+	}
+}
+
 func TestSFAcceptanceInsertsSelectFromSnippet(t *testing.T) {
 	state := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
 		return bigquery.Result{}, nil
