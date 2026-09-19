@@ -301,6 +301,30 @@ func TestWorkspaceFitsWhenTerminalNarrows(t *testing.T) {
 	}
 }
 
+func TestResultsKeepHeadersAndRowNumbersWhileNavigating(t *testing.T) {
+	state := initialModelWithMock(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}), true)
+	state.focus = focusResults
+	state.width, state.height = 100, 30
+	state.resizeTab(0)
+	state.setResult(0, bigquery.Result{Columns: []string{"id", "name", "segment"}, Rows: []bigquery.Row{{Values: []string{"1", "Ada", "enterprise"}}, {Values: []string{"2", "Grace", "startup"}}}})
+	view := state.renderResults()
+	if !contains(view, "id") || !contains(view, "name") || !contains(view, "1") {
+		t.Fatalf("results should retain headers and row numbers: %q", view)
+	}
+	updated, _ := state.Update(tea.KeyMsg{Type: tea.KeyDown})
+	state = updated.(model)
+	if state.tabs[0].resultRow != 1 {
+		t.Fatalf("down should move result row cursor: %d", state.tabs[0].resultRow)
+	}
+	updated, _ = state.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	state = updated.(model)
+	if state.tabs[0].resultColumn != 1 {
+		t.Fatalf("l should move result column cursor: %d", state.tabs[0].resultColumn)
+	}
+}
+
 func TestCtrlJRecordsQueryRun(t *testing.T) {
 	state := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
 		return bigquery.Result{}, nil

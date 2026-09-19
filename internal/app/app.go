@@ -47,6 +47,10 @@ type queryTab struct {
 	results       table.Model
 	history       []runRecord
 	historyCursor int
+	result        bigquery.Result
+	resultRow     int
+	resultColumn  int
+	resultOffset  int
 }
 
 type model struct {
@@ -252,6 +256,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.focus == focusHistory && m.tabs[m.activeTab].historyCursor > 0 {
 				m.tabs[m.activeTab].historyCursor--
 			}
+			if m.focus == focusResults {
+				m.moveResultRow(1)
+			}
 		case "k", "up":
 			if m.focus == focusProjects {
 				m.moveProjectSelection(-1)
@@ -259,13 +266,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.focus == focusHistory && m.tabs[m.activeTab].historyCursor < len(m.tabs[m.activeTab].history)-1 {
 				m.tabs[m.activeTab].historyCursor++
 			}
+			if m.focus == focusResults {
+				m.moveResultRow(-1)
+			}
 		case "left", "h":
 			if m.focus == focusProjects {
 				m.collapseProject()
 			}
+			if m.focus == focusResults {
+				m.moveResultColumn(-1)
+			}
 		case "right", "l":
 			if m.focus == focusProjects {
 				m.expandProject()
+			}
+			if m.focus == focusResults {
+				m.moveResultColumn(1)
 			}
 		}
 	}
@@ -502,6 +518,7 @@ func (m model) runQuery(historyIndex int) tea.Cmd {
 }
 
 func (m *model) setResult(tabIndex int, result bigquery.Result) {
+	m.tabs[tabIndex].result = result
 	columns := make([]table.Column, len(result.Columns))
 	columnWidth := max(6, (m.tabs[tabIndex].results.Width()-2*max(0, len(result.Columns)-1))/max(1, len(result.Columns)))
 	for i, column := range result.Columns {
@@ -514,6 +531,40 @@ func (m *model) setResult(tabIndex int, result bigquery.Result) {
 	m.tabs[tabIndex].results.SetColumns(columns)
 	m.tabs[tabIndex].results.SetRows(rows)
 	m.resizeResultColumns(tabIndex)
+}
+
+func (m *model) moveResultRow(direction int) {
+	tab := &m.tabs[m.activeTab]
+	if len(tab.result.Rows) == 0 {
+		return
+	}
+	tab.resultRow += direction
+	if tab.resultRow < 0 {
+		tab.resultRow = 0
+	}
+	if tab.resultRow >= len(tab.result.Rows) {
+		tab.resultRow = len(tab.result.Rows) - 1
+	}
+}
+
+func (m *model) moveResultColumn(direction int) {
+	tab := &m.tabs[m.activeTab]
+	if len(tab.result.Columns) == 0 {
+		return
+	}
+	tab.resultColumn += direction
+	if tab.resultColumn < 0 {
+		tab.resultColumn = 0
+	}
+	if tab.resultColumn >= len(tab.result.Columns) {
+		tab.resultColumn = len(tab.result.Columns) - 1
+	}
+	if tab.resultColumn < tab.resultOffset {
+		tab.resultOffset = tab.resultColumn
+	}
+	if tab.resultColumn >= tab.resultOffset+1 {
+		tab.resultOffset = tab.resultColumn
+	}
 }
 
 func (m model) View() string {
@@ -585,7 +636,7 @@ func focusShortcutsLabel(current focus) string {
 	case focusEditor:
 		return "QUERY EDITOR  Ctrl+R run  ·  Enter newline"
 	case focusResults:
-		return "RESULTS  Up/Down scroll"
+		return "RESULTS  Up/Down rows  ·  H/L columns"
 	case focusHistory:
 		return "RUN HISTORY  Up/Down select  ·  Enter load"
 	case focusShortcuts:
@@ -824,7 +875,78 @@ func (m model) editorView() string {
 
 func (m model) resultView() string {
 	title := lipgloss.NewStyle().Foreground(accent).Bold(true).Render("RESULTS")
-	return lipgloss.JoinVertical(lipgloss.Left, title, m.panelBoxStyle(focusResults).Render(m.tabs[m.activeTab].results.View()))
+	return lipgloss.JoinVertical(lipgloss.Left, title, m.panelBoxStyle(focusResults).Render(m.renderResults()))
+}
+
+func (m model) renderResults() string {
+	tab := m.tabs[m.activeTab]
+	if len(tab.result.Columns) == 0 {
+		return "Result"
+	}
+	width := tab.results.Width()
+	rowNumberWidth := 5
+	columnWidths := make([]int, len(tab.result.Columns))
+	for index, column := range tab.result.Columns {
+		columnWidths[index] = max(8, minInt(20, len(column)))
+		for _, row := range tab.result.Rows {
+			if index < len(row.Values) {
+				columnWidths[index] = maxInt(columnWidths[index], minInt(20, len(row.Values[index])))
+			}
+		}
+	}
+	visibleWidth := 0
+	offset := tab.resultOffset
+	if tab.resultColumn >= offset {
+		offset = tab.resultColumn
+	}
+	end := offset
+	for end < len(columnWidths) && visibleWidth+columnWidths[end]+2 <= width-rowNumberWidth {
+		visibleWidth += columnWidths[end] + 2
+		end++
+	}
+	if end == offset {
+		end++
+	}
+	lines := []string{"     " + resultRow(tab.result.Columns[offset:end], columnWidths[offset:end])}
+	lines = append(lines, "     "+resultSeparator(columnWidths[offset:end]))
+	for rowIndex, row := range tab.result.Rows {
+		values := row.Values
+		rowValues := resultWindow(values, offset, end)
+		if tab.resultRow == rowIndex {
+			lines = append(lines, lipgloss.NewStyle().Foreground(accent).Render(fmt.Sprintf("%4d ", rowIndex+1)+resultRow(rowValues, columnWidths[offset:end])))
+		} else {
+			lines = append(lines, fmt.Sprintf("%4d ", rowIndex+1)+resultRow(rowValues, columnWidths[offset:end]))
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func resultRow(values []string, widths []int) string {
+	parts := make([]string, len(widths))
+	for index, width := range widths {
+		value := ""
+		if index < len(values) {
+			value = truncate(values[index], width)
+		}
+		parts[index] = fmt.Sprintf("%-*s", width, value)
+	}
+	return strings.TrimRight(strings.Join(parts, "  "), " ")
+}
+func resultSeparator(widths []int) string {
+	parts := make([]string, len(widths))
+	for index, width := range widths {
+		parts[index] = strings.Repeat("-", width)
+	}
+	return strings.Join(parts, "  ")
+}
+func resultWindow(values []string, start, end int) []string {
+	window := make([]string, end-start)
+	for index := range window {
+		if start+index < len(values) {
+			window[index] = values[start+index]
+		}
+	}
+	return window
 }
 
 func (m model) historyView() string {
