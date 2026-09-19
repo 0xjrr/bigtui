@@ -353,6 +353,21 @@ func TestResultsPaneFillsAvailableHeight(t *testing.T) {
 	}
 }
 
+func TestResultsPaneFillsAvailableWidth(t *testing.T) {
+	state := initialModelWithMock(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}), true)
+	updated, _ := state.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	state = updated.(model)
+	if got, want := lipgloss.Width(state.resultView()), state.tabs[0].results.Width()+2; got != want {
+		t.Fatalf("results pane width = %d, want %d", got, want)
+	}
+	state.setResult(0, bigquery.Result{Columns: []string{"id", "name"}, Rows: []bigquery.Row{{Values: []string{"1", "Ada"}}}})
+	if got, want := lipgloss.Width(state.resultView()), state.tabs[0].results.Width()+2; got != want {
+		t.Fatalf("populated results pane width = %d, want %d", got, want)
+	}
+}
+
 func TestCtrlJRecordsQueryRun(t *testing.T) {
 	state := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
 		return bigquery.Result{}, nil
