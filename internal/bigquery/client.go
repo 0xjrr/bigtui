@@ -3,6 +3,8 @@ package bigquery
 import (
 	"context"
 	"fmt"
+	"math/big"
+	"strings"
 
 	cloudbigquery "cloud.google.com/go/bigquery"
 	"google.golang.org/api/iterator"
@@ -104,10 +106,21 @@ func (c *CloudClient) Query(ctx context.Context, projectID, sql string) (Result,
 		}
 		row := Row{Values: make([]string, len(values))}
 		for i, value := range values {
-			row.Values[i] = fmt.Sprint(value)
+			row.Values[i] = formatValue(value)
 		}
 		result.Rows = append(result.Rows, row)
 		result.Total++
 	}
 	return result, nil
+}
+
+func formatValue(value cloudbigquery.Value) string {
+	switch numeric := value.(type) {
+	case *big.Rat:
+		return strings.TrimRight(strings.TrimRight(numeric.FloatString(9), "0"), ".")
+	case big.Rat:
+		return strings.TrimRight(strings.TrimRight(numeric.FloatString(9), "0"), ".")
+	default:
+		return fmt.Sprint(value)
+	}
 }
