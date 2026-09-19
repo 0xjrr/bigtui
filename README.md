@@ -43,3 +43,9 @@ Completion providers implement `completion.Provider`, so an LSP client (such as 
 go test ./...
 go vet ./...
 ```
+
+## License
+
+bigtui is licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE)
+and [NOTICE](NOTICE) for the project terms and attribution. Third-party dependency
+licenses and notices are collected in [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).
