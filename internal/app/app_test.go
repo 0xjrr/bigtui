@@ -783,7 +783,7 @@ func TestFocusIndicatorCyclesThroughWorkspaceAreas(t *testing.T) {
 	state := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
 		return bigquery.Result{}, nil
 	}))
-	expected := []string{"QUERY EDITOR", "RESULTS", "RUN HISTORY", "SHORTCUTS", "PROJECTS"}
+	expected := []string{"QUERY EDITOR", "RESULTS", "RUN HISTORY", "SHORTCUTS", "EXPLORER"}
 	for _, label := range expected {
 		if got := focusLabel(state.focus); got != label {
 			t.Fatalf("expected focus label %q, got %q", label, got)

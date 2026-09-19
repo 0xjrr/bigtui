@@ -1123,7 +1123,7 @@ func (m model) View() string {
 	header := lipgloss.NewStyle().Foreground(ink).Bold(true).Render("BIGTUI") + "  " + lipgloss.NewStyle().Foreground(muted).Render("BigQuery workspace")
 	tabStrip := m.tabView()
 	focusIndicator := lipgloss.NewStyle().Foreground(accent).Bold(true).Render("FOCUS: " + focusLabel(m.focus))
-	projectView := lipgloss.JoinVertical(lipgloss.Left, panelTitle("PROJECTS"), m.projectView())
+	projectView := lipgloss.JoinVertical(lipgloss.Left, panelTitle("EXPLORER"), m.projectView())
 	main := lipgloss.JoinVertical(lipgloss.Left, m.editorView(), m.resultView())
 	historyView := lipgloss.JoinVertical(lipgloss.Left, panelTitle("RUN HISTORY"), m.historyView())
 	footer := m.shortcutView()
@@ -1170,10 +1170,10 @@ func (m model) shortcutView() string {
 	tabControls := tabStyle.Render(tabText)
 	contextLabel := focusShortcutsLabel(m.focus)
 	if m.focus == focusProjects && m.width < 140 {
-		contextLabel = "PROJECTS  arrows  ·  Ctrl+E insert  ·  Ctrl+H hidden  ·  Enter"
+		contextLabel = "EXPLORER  arrows  ·  Ctrl+E insert  ·  Ctrl+H hidden  ·  Enter"
 	}
 	if m.focus == focusProjects && m.width < 100 {
-		contextLabel = "PROJECTS  arrows  ·  Ctrl+E insert  ·  Ctrl+H"
+		contextLabel = "EXPLORER  arrows  ·  Ctrl+E insert  ·  Ctrl+H"
 	}
 	if m.focus == focusResults && m.width < 140 {
 		contextLabel = "RESULTS  Up/Down rows  ·  Left/Right cols"
@@ -1194,7 +1194,7 @@ func (m model) shortcutView() string {
 func focusShortcutsLabel(current focus) string {
 	switch current {
 	case focusProjects:
-		return "PROJECTS  Up/Down select  ·  Left/Right expand  ·  Ctrl+E query  ·  Ctrl+H hidden  ·  Enter info"
+		return "EXPLORER  Up/Down select  ·  Left/Right expand  ·  Ctrl+E query  ·  Ctrl+H hidden  ·  Enter info"
 	case focusEditor:
 		return "QUERY EDITOR  Ctrl+R run  ·  auto-complete as you type  ·  Enter newline"
 	case focusResults:
@@ -1211,7 +1211,7 @@ func focusShortcutsLabel(current focus) string {
 func focusLabel(current focus) string {
 	switch current {
 	case focusProjects:
-		return "PROJECTS"
+		return "EXPLORER"
 	case focusEditor:
 		return "QUERY EDITOR"
 	case focusResults:
