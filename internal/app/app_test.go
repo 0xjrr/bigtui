@@ -435,6 +435,43 @@ func TestProjectsTreeExpandsAndSelectsDatasets(t *testing.T) {
 	}
 }
 
+func TestCtrlEInsertsSelectedDatasetAtEditorCursor(t *testing.T) {
+	state := initialModelWithMock(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}), true)
+	state.focus = focusProjects
+	state.selectedDataset = 0
+	state.selectedChild = -1
+	state.tabs[0].editor.SetValue("-- query\n")
+	state.tabs[0].editor.CursorEnd()
+	updated, _ := state.Update(tea.KeyMsg{Type: tea.KeyCtrlE})
+	state = updated.(model)
+	want := "-- query\nSELECT * FROM `sandbox-analytics.events`"
+	if state.tabs[0].editor.Value() != want {
+		t.Fatalf("dataset query insertion = %q, want %q", state.tabs[0].editor.Value(), want)
+	}
+	if state.focus != focusEditor {
+		t.Fatalf("expected focus to return to editor, got %s", focusLabel(state.focus))
+	}
+}
+
+func TestCtrlEInsertsSelectedTableAtEditorCursor(t *testing.T) {
+	state := initialModelWithMock(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}), true)
+	state.focus = focusProjects
+	state.selectedDataset = 0
+	state.selectedChild = 0
+	state.tabs[0].editor.SetValue("SELECT 1; ")
+	state.tabs[0].editor.CursorEnd()
+	updated, _ := state.Update(tea.KeyMsg{Type: tea.KeyCtrlE})
+	state = updated.(model)
+	want := "SELECT 1; SELECT * FROM `sandbox-analytics.events.customers`"
+	if state.tabs[0].editor.Value() != want {
+		t.Fatalf("table query insertion = %q, want %q", state.tabs[0].editor.Value(), want)
+	}
+}
+
 func TestVimHorizontalKeysExpandAndCollapseProjects(t *testing.T) {
 	state := initialModelWithMock(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
 		return bigquery.Result{}, nil

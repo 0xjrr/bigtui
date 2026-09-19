@@ -410,6 +410,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.focus == focusProjects {
 				return m, m.toggleHiddenDatasets()
 			}
+		case "ctrl+e":
+			if m.focus == focusProjects {
+				m.insertSelectedReference()
+				return m, nil
+			}
 		case "ctrl+n":
 			m.addTab()
 			return m, nil
@@ -754,6 +759,24 @@ func (m *model) selectSearchResult() {
 	m.focus = focusProjects
 	m.applyFocus()
 	m.status = "Selected " + result.name
+}
+
+func (m *model) insertSelectedReference() {
+	if len(m.projects) == 0 || m.active < 0 || m.active >= len(m.projects) || m.selectedDataset < 0 || m.selectedDataset >= len(m.projects[m.active].Resources) {
+		return
+	}
+	dataset := m.projects[m.active].Resources[m.selectedDataset]
+	if dataset.Kind != "dataset" {
+		return
+	}
+	name := m.projects[m.active].ID + "." + dataset.Name
+	if m.selectedChild >= 0 && m.selectedChild < len(dataset.Children) {
+		name += "." + dataset.Children[m.selectedChild].Name
+	}
+	m.tabs[m.activeTab].editor.InsertString("SELECT * FROM `" + name + "`")
+	m.focus = focusEditor
+	m.applyFocus()
+	m.status = "Inserted " + name
 }
 
 func (m *model) moveProjectSelection(direction int) {
@@ -1147,10 +1170,10 @@ func (m model) shortcutView() string {
 	tabControls := tabStyle.Render(tabText)
 	contextLabel := focusShortcutsLabel(m.focus)
 	if m.focus == focusProjects && m.width < 140 {
-		contextLabel = "PROJECTS  arrows  ·  Ctrl+H hidden  ·  Enter"
+		contextLabel = "PROJECTS  arrows  ·  Ctrl+E insert  ·  Ctrl+H hidden  ·  Enter"
 	}
 	if m.focus == focusProjects && m.width < 100 {
-		contextLabel = "PROJECTS  arrows  ·  Ctrl+H"
+		contextLabel = "PROJECTS  arrows  ·  Ctrl+E insert  ·  Ctrl+H"
 	}
 	if m.focus == focusResults && m.width < 140 {
 		contextLabel = "RESULTS  Up/Down rows  ·  Left/Right cols"
@@ -1171,7 +1194,7 @@ func (m model) shortcutView() string {
 func focusShortcutsLabel(current focus) string {
 	switch current {
 	case focusProjects:
-		return "PROJECTS  Up/Down select  ·  Left/Right expand  ·  Ctrl+H hidden  ·  Enter info"
+		return "PROJECTS  Up/Down select  ·  Left/Right expand  ·  Ctrl+E query  ·  Ctrl+H hidden  ·  Enter info"
 	case focusEditor:
 		return "QUERY EDITOR  Ctrl+R run  ·  auto-complete as you type  ·  Enter newline"
 	case focusResults:
@@ -1872,7 +1895,7 @@ func formatValidationError(err error) string {
 }
 
 func (m model) helpView() string {
-	lines := []string{"KEYMAP", "", "ctrl+s             search all resources", "ctrl+h             show/hide hidden datasets", "editor             suggests completions as you type", "tab / shift+tab   move focus", "ctrl+left/right   switch query tab", "ctrl+n             new query tab", "ctrl+w             close query tab", "up/down            select project or resource", "left/right         expand or collapse", "enter              inspect resource / newline", "ctrl+r             run query", "ctrl+enter         run when supported", "?                  close help", "q                  quit outside editor", "ctrl+c             quit"}
+	lines := []string{"KEYMAP", "", "ctrl+s             search all resources", "ctrl+h             show/hide hidden datasets", "ctrl+e             insert selected resource query", "editor             suggests completions as you type", "tab / shift+tab   move focus", "ctrl+left/right   switch query tab", "ctrl+n             new query tab", "ctrl+w             close query tab", "up/down            select project or resource", "left/right         expand or collapse", "enter              inspect resource / newline", "ctrl+r             run query", "ctrl+enter         run when supported", "?                  close help", "q                  quit outside editor", "ctrl+c             quit"}
 	return lipgloss.NewStyle().Width(50).Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(2).Render(strings.Join(lines, "\n"))
 }
 
