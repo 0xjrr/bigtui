@@ -832,6 +832,14 @@ func resourceInfoLines(resource project.Resource) []string {
 	if resource.Kind == "table" || resource.Kind == "external" {
 		lines = append(lines, "", "Storage info", fmt.Sprintf("  Number of rows          %d", resource.NumRows), "  Total logical bytes     "+formatBytes(resource.NumBytes), "  Long term logical bytes "+formatBytes(resource.LongTermBytes))
 	}
+	if resource.PartitionType != "" || resource.PartitionField != "" {
+		lines = append(lines, "", "Partitioning")
+		if resource.PartitionType != "" { lines = append(lines, "  Type             "+resource.PartitionType) }
+		if resource.PartitionField != "" { lines = append(lines, "  Field            "+resource.PartitionField) }
+		if resource.PartitionExpiration > 0 { lines = append(lines, "  Partition expiry "+resource.PartitionExpiration.String()) }
+		lines = append(lines, fmt.Sprintf("  Require filter   %t", resource.RequirePartitionFilter))
+	}
+	if len(resource.Clustering) > 0 { lines = append(lines, "", "Clustering", "  Fields           "+strings.Join(resource.Clustering, ", ")) }
 	return lines
 }
 

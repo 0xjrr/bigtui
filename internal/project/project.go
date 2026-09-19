@@ -19,25 +19,30 @@ type Project struct {
 }
 
 type Resource struct {
-	Name           string
-	Kind           string
-	Children       []Resource
-	Columns        []string
-	Preview        [][]string
-	ViewQuery      string
-	ExternalSource []string
-	ExternalFormat string
-	ID             string
-	Created        time.Time
-	Modified       time.Time
-	Expiration     time.Time
-	Location       string
-	Description    string
-	Labels         map[string]string
-	LegacySQL      bool
-	NumRows        uint64
-	NumBytes       int64
-	LongTermBytes  int64
+	Name                   string
+	Kind                   string
+	Children               []Resource
+	Columns                []string
+	Preview                [][]string
+	ViewQuery              string
+	ExternalSource         []string
+	ExternalFormat         string
+	ID                     string
+	Created                time.Time
+	Modified               time.Time
+	Expiration             time.Time
+	Location               string
+	Description            string
+	Labels                 map[string]string
+	LegacySQL              bool
+	NumRows                uint64
+	NumBytes               int64
+	LongTermBytes          int64
+	PartitionType          string
+	PartitionField         string
+	PartitionExpiration    time.Duration
+	RequirePartitionFilter bool
+	Clustering             []string
 }
 
 func MockProjects() []Project {
@@ -123,6 +128,18 @@ func Load(ctx context.Context) ([]Project, error) {
 					child.NumRows = metadata.NumRows
 					child.NumBytes = metadata.NumBytes
 					child.LongTermBytes = metadata.NumLongTermBytes
+					child.RequirePartitionFilter = metadata.RequirePartitionFilter
+					if metadata.Clustering != nil {
+						child.Clustering = append(child.Clustering, metadata.Clustering.Fields...)
+					}
+					if metadata.TimePartitioning != nil {
+						child.PartitionType = string(metadata.TimePartitioning.Type)
+						child.PartitionField = metadata.TimePartitioning.Field
+						child.PartitionExpiration = metadata.TimePartitioning.Expiration
+					} else if metadata.RangePartitioning != nil {
+						child.PartitionType = "RANGE"
+						child.PartitionField = metadata.RangePartitioning.Field
+					}
 					child.ViewQuery = metadata.ViewQuery
 					child.LegacySQL = metadata.UseLegacySQL
 					if metadata.ExternalDataConfig != nil {
