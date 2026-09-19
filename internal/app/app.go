@@ -567,14 +567,21 @@ func (m model) shortcutView() string {
 		tabText = "TABS  Ctrl+Left/Right"
 	}
 	tabControls := tabStyle.Render(tabText)
-	contextControls := contextStyle.Render(focusShortcutsLabel(m.focus))
+	contextLabel := focusShortcutsLabel(m.focus)
+	if m.focus == focusProjects && m.width < 140 {
+		contextLabel = "PROJECTS  Up/Down  ·  Left/Right  ·  Enter"
+	}
+	if m.focus == focusProjects && m.width < 100 {
+		contextLabel = "PROJECTS  arrows  ·  Enter"
+	}
+	contextControls := contextStyle.Render(contextLabel)
 	return lipgloss.JoinHorizontal(lipgloss.Top, tabControls, " ", contextControls)
 }
 
 func focusShortcutsLabel(current focus) string {
 	switch current {
 	case focusProjects:
-		return "PROJECTS  J/K select"
+		return "PROJECTS  Up/Down select  ·  Left/Right expand  ·  Enter info"
 	case focusEditor:
 		return "QUERY EDITOR  Ctrl+R run  ·  Enter newline"
 	case focusResults:
@@ -894,7 +901,7 @@ func formatValidationError(err error) string {
 }
 
 func (m model) helpView() string {
-	lines := []string{"KEYMAP", "", "tab / shift+tab   move focus", "ctrl+left/right   switch query tab", "ctrl+n             new query tab", "ctrl+w             close query tab", "j / k              switch project", "ctrl+r             run query", "ctrl+enter         run when supported", "enter              insert newline", "?                  close help", "q                  quit outside editor", "ctrl+c             quit"}
+	lines := []string{"KEYMAP", "", "tab / shift+tab   move focus", "ctrl+left/right   switch query tab", "ctrl+n             new query tab", "ctrl+w             close query tab", "up/down            select project or resource", "left/right         expand or collapse", "enter              inspect resource / newline", "ctrl+r             run query", "ctrl+enter         run when supported", "?                  close help", "q                  quit outside editor", "ctrl+c             quit"}
 	return lipgloss.NewStyle().Width(50).Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(2).Render(strings.Join(lines, "\n"))
 }
 
