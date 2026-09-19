@@ -272,9 +272,14 @@ func TestWorkspaceFitsWhenTerminalNarrows(t *testing.T) {
 	for _, width := range []int{120, 100, 80} {
 		updated, _ := state.Update(tea.WindowSizeMsg{Width: width, Height: 40})
 		state = updated.(model)
-		if got := lipgloss.Width(state.View()); got > width {
-			workspace := lipgloss.JoinHorizontal(lipgloss.Top, state.projectView(), "  ", state.editorView(), "  ", state.historyView())
-			t.Fatalf("workspace exceeds terminal width %d: rendered %d workspace=%d footer=%d editor=%d table=%d project=%d history=%d", width, got, lipgloss.Width(workspace), lipgloss.Width(state.shortcutView()), state.tabs[0].editor.Width(), state.tabs[0].results.Width(), state.projectPanelWidth(), state.historyPanelWidth())
+		workspace := lipgloss.JoinHorizontal(lipgloss.Top, state.projectView(), "  ", state.editorView(), "  ", state.historyView())
+		if got := lipgloss.Width(workspace); got > width || lipgloss.Width(state.shortcutView()) > width {
+			t.Fatalf("workspace controls exceed terminal width %d: workspace=%d footer=%d", width, got, lipgloss.Width(state.shortcutView()))
+		}
+		state.setResult(0, bigquery.Result{Columns: []string{"customer_id", "name", "segment", "order_count", "lifetime_value"}, Rows: []bigquery.Row{{Values: []string{"1", "Ada Lovelace", "enterprise", "2", "4001/2"}}}})
+		workspace = lipgloss.JoinHorizontal(lipgloss.Top, state.projectView(), "  ", state.editorView(), "  ", state.historyView())
+		if got := lipgloss.Width(workspace); got > width {
+			t.Fatalf("results expanded workspace beyond terminal width %d: rendered %d", width, got)
 		}
 	}
 }

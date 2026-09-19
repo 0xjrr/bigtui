@@ -435,10 +435,30 @@ func (m *model) resizeTab(index int) {
 	if index < 0 || index >= len(m.tabs) {
 		return
 	}
-	contentWidth := max(6, m.width-m.projectPanelWidth()-m.historyPanelWidth()-31)
+	reserve := 14
+	if m.width < 110 {
+		reserve = 19
+	}
+	if m.width < 90 {
+		reserve = 29
+	}
+	contentWidth := max(10, m.width-m.projectPanelWidth()-m.historyPanelWidth()-reserve)
 	m.tabs[index].editor.SetWidth(contentWidth)
 	m.tabs[index].results.SetWidth(contentWidth)
+	m.resizeResultColumns(index)
 	m.tabs[index].results.SetHeight(max(3, m.height-23))
+}
+
+func (m *model) resizeResultColumns(tabIndex int) {
+	columns := m.tabs[tabIndex].results.Columns()
+	if len(columns) == 0 {
+		return
+	}
+	columnWidth := max(6, (m.tabs[tabIndex].results.Width()-2*max(0, len(columns)-1))/len(columns))
+	for index := range columns {
+		columns[index].Width = columnWidth
+	}
+	m.tabs[tabIndex].results.SetColumns(columns)
 }
 
 func (m *model) closeTab() {
@@ -483,8 +503,9 @@ func (m model) runQuery(historyIndex int) tea.Cmd {
 
 func (m *model) setResult(tabIndex int, result bigquery.Result) {
 	columns := make([]table.Column, len(result.Columns))
+	columnWidth := max(6, (m.tabs[tabIndex].results.Width()-2*max(0, len(result.Columns)-1))/max(1, len(result.Columns)))
 	for i, column := range result.Columns {
-		columns[i] = table.Column{Title: column, Width: 18}
+		columns[i] = table.Column{Title: truncate(column, columnWidth), Width: columnWidth}
 	}
 	rows := make([]table.Row, len(result.Rows))
 	for i, row := range result.Rows {
@@ -492,6 +513,7 @@ func (m *model) setResult(tabIndex int, result bigquery.Result) {
 	}
 	m.tabs[tabIndex].results.SetColumns(columns)
 	m.tabs[tabIndex].results.SetRows(rows)
+	m.resizeResultColumns(tabIndex)
 }
 
 func (m model) View() string {
