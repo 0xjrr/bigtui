@@ -625,6 +625,12 @@ func (m model) shortcutView() string {
 	if m.focus == focusProjects && m.width < 100 {
 		contextLabel = "PROJECTS  arrows  ·  Enter"
 	}
+	if m.focus == focusResults && m.width < 140 {
+		contextLabel = "RESULTS  Up/Down rows  ·  Left/Right cols  ·  H/L"
+	}
+	if m.focus == focusResults && m.width < 100 {
+		contextLabel = "RESULTS  arrows rows/cols"
+	}
 	contextControls := contextStyle.Render(contextLabel)
 	return lipgloss.JoinHorizontal(lipgloss.Top, tabControls, " ", contextControls)
 }
@@ -636,7 +642,7 @@ func focusShortcutsLabel(current focus) string {
 	case focusEditor:
 		return "QUERY EDITOR  Ctrl+R run  ·  Enter newline"
 	case focusResults:
-		return "RESULTS  Up/Down rows  ·  H/L columns"
+		return "RESULTS  Up/Down rows  ·  Left/Right columns  ·  H/L aliases"
 	case focusHistory:
 		return "RUN HISTORY  Up/Down select  ·  Enter load"
 	case focusShortcuts:
