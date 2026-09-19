@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -322,6 +323,22 @@ func TestResultsKeepHeadersAndRowNumbersWhileNavigating(t *testing.T) {
 	state = updated.(model)
 	if state.tabs[0].resultColumn != 1 {
 		t.Fatalf("l should move result column cursor: %d", state.tabs[0].resultColumn)
+	}
+}
+
+func TestResultsViewportDoesNotGrowWithRows(t *testing.T) {
+	state := initialModelWithMock(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}), true)
+	state.width, state.height = 100, 30
+	state.resizeTab(0)
+	rows := make([]bigquery.Row, 100)
+	for index := range rows {
+		rows[index] = bigquery.Row{Values: []string{fmt.Sprint(index)}}
+	}
+	state.setResult(0, bigquery.Result{Columns: []string{"id"}, Rows: rows})
+	if got, limit := lipgloss.Height(state.renderResults()), state.tabs[0].results.Height(); got > limit {
+		t.Fatalf("results rendered %d rows beyond viewport %d", got, limit)
 	}
 }
 

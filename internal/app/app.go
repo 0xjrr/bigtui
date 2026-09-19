@@ -909,7 +909,14 @@ func (m model) renderResults() string {
 	}
 	lines := []string{"     " + resultRow(tab.result.Columns[offset:end], columnWidths[offset:end])}
 	lines = append(lines, "     "+resultSeparator(columnWidths[offset:end]))
-	for rowIndex, row := range tab.result.Rows {
+	viewport := max(1, tab.results.Height()-2)
+	rowStart := 0
+	if tab.resultRow >= viewport {
+		rowStart = tab.resultRow - viewport + 1
+	}
+	rowEnd := minInt(len(tab.result.Rows), rowStart+viewport)
+	for rowIndex := rowStart; rowIndex < rowEnd; rowIndex++ {
+		row := tab.result.Rows[rowIndex]
 		values := row.Values
 		rowValues := resultWindow(values, offset, end)
 		if tab.resultRow == rowIndex {
