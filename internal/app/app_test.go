@@ -73,6 +73,23 @@ func TestProjectsTreeExpandsAndSelectsDatasets(t *testing.T) {
 	}
 }
 
+func TestVimHorizontalKeysExpandAndCollapseProjects(t *testing.T) {
+	state := initialModelWithMock(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}), true)
+	state.focus = focusProjects
+	updated, _ := state.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	state = updated.(model)
+	if !state.expanded[0] {
+		t.Fatal("l should expand the selected project")
+	}
+	updated, _ = state.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	state = updated.(model)
+	if state.expanded[0] {
+		t.Fatal("h should collapse the selected project")
+	}
+}
+
 func TestEnterOpensResourceInfoModal(t *testing.T) {
 	state := initialModelWithMock(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
 		return bigquery.Result{}, nil

@@ -259,11 +259,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.focus == focusHistory && m.tabs[m.activeTab].historyCursor < len(m.tabs[m.activeTab].history)-1 {
 				m.tabs[m.activeTab].historyCursor++
 			}
-		case "left":
+		case "left", "h":
 			if m.focus == focusProjects {
 				m.collapseProject()
 			}
-		case "right":
+		case "right", "l":
 			if m.focus == focusProjects {
 				m.expandProject()
 			}
