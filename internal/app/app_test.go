@@ -16,6 +16,15 @@ import (
 
 type clientFunc func(context.Context, string, string) (bigquery.Result, error)
 
+func isWorldCity(name string) bool {
+	for _, city := range worldCities {
+		if city == name {
+			return true
+		}
+	}
+	return false
+}
+
 func (f clientFunc) Query(ctx context.Context, projectID, sql string) (bigquery.Result, error) {
 	return f(ctx, projectID, sql)
 }
@@ -1050,7 +1059,7 @@ func TestQueryTabsCanBeAddedSwitchedAndClosed(t *testing.T) {
 	}
 
 	state.addTab()
-	if len(state.tabs) != 2 || state.activeTab != 1 || state.tabs[1].title != "Query 2" {
+	if len(state.tabs) != 2 || state.activeTab != 1 || !isWorldCity(state.tabs[1].title) {
 		t.Fatalf("tab was not added correctly: active=%d tabs=%#v", state.activeTab, state.tabs)
 	}
 	state.tabs[1].editor.SetValue("SELECT 2")

@@ -185,7 +185,7 @@ func initialModelWithProjects(client bigquery.Client, projects []project.Project
 }
 
 func initialModelWithProjectsAndLoader(client bigquery.Client, projects []project.Project, loader project.CatalogLoader) model {
-	tab := newQueryTab("Query 1", "")
+	tab := newQueryTab(randomCity(), "")
 	tab.editor.Focus()
 	searchInput := textinput.New()
 	searchInput.Placeholder = "Search projects, datasets, tables, and views..."
@@ -946,7 +946,7 @@ func (m *model) collapseProject() {
 }
 
 func (m *model) addTab() {
-	title := fmt.Sprintf("Query %d", len(m.tabs)+1)
+	title := randomCity()
 	tab := newQueryTab(title, "")
 	m.tabs = append(m.tabs, tab)
 	m.activeTab = len(m.tabs) - 1
