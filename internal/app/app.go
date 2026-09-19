@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/xjrr/bigtui/internal/bigquery"
+	"github.com/xjrr/bigtui/internal/completion"
 	"github.com/xjrr/bigtui/internal/project"
 )
 
@@ -128,6 +130,9 @@ type model struct {
 	tablesLoaded       map[string]bool
 	projectScroll      int
 	showHiddenDatasets bool
+	completionOpen     bool
+	completionItems    []completion.Item
+	completionCursor   int
 }
 
 var (
@@ -278,6 +283,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.datasetsLoaded[msg.projectIndex] = true
 			m.updateProjectScroll()
 			m.status = fmt.Sprintf("Loaded %d datasets.", len(msg.resources))
+			if m.focus == focusEditor {
+				return m, m.refreshCompletion()
+			}
 		}
 	case tablesLoaded:
 		key := m.datasetKey(msg.projectIndex, msg.datasetIndex)
@@ -292,6 +300,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.tablesLoaded[key] = true
 			m.updateProjectScroll()
 			m.status = fmt.Sprintf("Loaded %d tables/views.", len(msg.resources))
+			if m.focus == focusEditor {
+				return m, m.refreshCompletion()
+			}
 		}
 	case resourceLoaded:
 		m.resourceLoading = false
@@ -364,6 +375,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "?" && m.focus != focusEditor {
 			m.showHelp = !m.showHelp
 			return m, nil
+		}
+		if m.completionOpen && m.focus == focusEditor {
+			switch msg.String() {
+			case "esc":
+				m.completionOpen = false
+				m.completionItems = nil
+				return m, nil
+			case "up", "ctrl+k":
+				if m.completionCursor > 0 {
+					m.completionCursor--
+				}
+				return m, nil
+			case "down", "ctrl+j":
+				if m.completionCursor < len(m.completionItems)-1 {
+					m.completionCursor++
+				}
+				return m, nil
+			case "enter":
+				return m, m.acceptCompletion()
+			case "left", "right":
+				m.completionOpen = false
+				m.completionItems = nil
+			}
 		}
 		switch msg.String() {
 		case "ctrl+s":
@@ -475,7 +509,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.focus == focusEditor {
 		m.tabs[m.activeTab].editor, cmd = m.tabs[m.activeTab].editor.Update(msg)
 		if _, ok := msg.(tea.KeyMsg); ok {
-			return m, tea.Batch(cmd, m.analyzeQuery())
+			completionCmd := m.refreshCompletion()
+			return m, tea.Batch(cmd, completionCmd, m.analyzeQuery())
 		}
 	} else if m.focus == focusResults {
 		m.tabs[m.activeTab].results, cmd = m.tabs[m.activeTab].results.Update(msg)
@@ -497,6 +532,8 @@ func (m model) analyzeQuery() tea.Cmd {
 }
 
 func (m *model) applyFocus() {
+	m.completionOpen = false
+	m.completionItems = nil
 	for index := range m.tabs {
 		m.tabs[index].editor.Blur()
 		m.tabs[index].results.Blur()
@@ -505,6 +542,154 @@ func (m *model) applyFocus() {
 		m.tabs[m.activeTab].editor.Focus()
 	}
 	m.tabs[m.activeTab].results.SetCursor(0)
+}
+
+func cursorOffset(editor textarea.Model) int {
+	lines := strings.Split(editor.Value(), "\n")
+	row := editor.Line()
+	if row < 0 {
+		row = 0
+	}
+	if row >= len(lines) {
+		row = len(lines) - 1
+	}
+	offset := 0
+	for i := 0; i < row; i++ {
+		offset += len([]rune(lines[i])) + 1
+	}
+	if row >= 0 && row < len(lines) {
+		info := editor.LineInfo()
+		col := info.StartColumn + info.ColumnOffset
+		lineRunes := []rune(lines[row])
+		if col > len(lineRunes) {
+			col = len(lineRunes)
+		}
+		offset += col
+	}
+	return offset
+}
+
+func (m *model) refreshCompletion() tea.Cmd {
+	editor := m.tabs[m.activeTab].editor
+	sql := editor.Value()
+	cursor := cursorOffset(editor)
+	parts := completion.ReferenceParts(sql, cursor)
+	resourceContext := completion.IsResourceContext(sql, cursor)
+	qualifiedReference := len(parts) > 1 && parts[len(parts)-1] == ""
+	if completion.WordPrefix(sql, cursor) == "" && !qualifiedReference {
+		m.completionOpen = false
+		m.completionItems = nil
+		return nil
+	}
+	projectID := ""
+	if len(m.projects) > 0 {
+		projectID = m.projects[m.active].ID
+	}
+	projectIndex := m.active
+	if len(parts) > 1 {
+		for index, item := range m.projects {
+			if item.ID == parts[0] {
+				projectIndex = index
+				break
+			}
+		}
+	}
+	if projectIndex >= 0 && projectIndex < len(m.projects) {
+		projectID = m.projects[projectIndex].ID
+	}
+	if resourceContext && m.loader != nil && projectIndex >= 0 && projectIndex < len(m.projects) && !m.datasetsLoaded[projectIndex] && !m.projectLoading[projectIndex] {
+		m.projectLoading[projectIndex] = true
+		m.completionOpen = false
+		m.completionItems = nil
+		m.status = "Loading datasets for autocomplete..."
+		return m.loadDatasets(projectIndex)
+	}
+	if resourceContext && m.loader != nil {
+		datasetIndex, ok := m.completionDatasetIndex(projectIndex, parts)
+		if ok {
+			key := m.datasetKey(projectIndex, datasetIndex)
+			if !m.tablesLoaded[key] && !m.datasetLoading[key] {
+				m.datasetLoading[key] = true
+				m.completionOpen = false
+				m.completionItems = nil
+				m.status = "Loading tables for autocomplete..."
+				return m.loadTables(projectIndex, datasetIndex)
+			}
+		}
+	}
+	request := completion.Request{Project: projectID, SQL: sql, Cursor: cursor}
+	catalogItems, _ := completion.CatalogProvider{Catalog: m.projects}.Complete(context.Background(), request)
+	keywordItems, _ := completion.KeywordProvider{}.Complete(context.Background(), request)
+	functionItems, _ := completion.FunctionProvider{}.Complete(context.Background(), request)
+	items := completion.Merge(catalogItems, keywordItems, functionItems)
+	if len(items) > 20 {
+		items = items[:20]
+	}
+	m.completionItems = items
+	m.completionOpen = len(items) > 0
+	if m.completionCursor >= len(items) {
+		m.completionCursor = 0
+	}
+	return nil
+}
+
+func (m model) completionDatasetIndex(projectIndex int, parts []string) (int, bool) {
+	if projectIndex < 0 || projectIndex >= len(m.projects) || len(parts) < 2 {
+		return -1, false
+	}
+	datasetName := parts[0]
+	if parts[0] == m.projects[projectIndex].ID {
+		if len(parts) < 3 {
+			return -1, false
+		}
+		datasetName = parts[1]
+	}
+	for index, resource := range m.projects[projectIndex].Resources {
+		if resource.Kind == "dataset" && resource.Name == datasetName {
+			return index, true
+		}
+	}
+	return -1, false
+}
+
+func (m *model) acceptCompletion() tea.Cmd {
+	if len(m.completionItems) == 0 {
+		return nil
+	}
+	item := m.completionItems[m.completionCursor]
+	editor := m.tabs[m.activeTab].editor
+	value := editor.Value()
+	cursor := cursorOffset(editor)
+	prefix := completion.WordPrefix(value, cursor)
+	if prefix == "" {
+		parts := completion.ReferenceParts(value, cursor)
+		if len(parts) > 0 {
+			prefix = parts[len(parts)-1]
+		}
+	}
+	suffix := completionSuffix(item, completion.ReferenceIsQuoted(value, cursor))
+	for range []rune(prefix) {
+		editor, _ = editor.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	}
+	editor.InsertString(item.InsertText + suffix)
+	m.tabs[m.activeTab].editor = editor
+	m.completionOpen = false
+	m.completionItems = nil
+	m.status = "Inserted " + item.Label
+	if strings.HasSuffix(suffix, ".") {
+		return m.refreshCompletion()
+	}
+	return nil
+}
+
+func completionSuffix(item completion.Item, quoted bool) string {
+	if item.Detail == "project" || strings.HasPrefix(item.Detail, "dataset ·") {
+		return "."
+	}
+	if quoted && (strings.HasPrefix(item.Detail, "table ·") || strings.HasPrefix(item.Detail, "view ·") || strings.HasPrefix(item.Detail, "external ·")) {
+		return "`"
+	}
+	return ""
 }
 
 func (m *model) refreshSearch() {
@@ -816,6 +1001,7 @@ func (m *model) toggleHiddenDatasets() tea.Cmd {
 	}
 	m.showHiddenDatasets = !m.showHiddenDatasets
 	m.datasetsLoaded = map[int]bool{}
+	m.projectLoading = map[int]bool{}
 	m.datasetLoading = map[string]bool{}
 	m.tablesLoaded = map[string]bool{}
 	m.expandedDataset = map[string]bool{}
@@ -914,16 +1100,20 @@ func (m model) View() string {
 	header := lipgloss.NewStyle().Foreground(ink).Bold(true).Render("BIGTUI") + "  " + lipgloss.NewStyle().Foreground(muted).Render("BigQuery workspace")
 	tabStrip := m.tabView()
 	focusIndicator := lipgloss.NewStyle().Foreground(accent).Bold(true).Render("FOCUS: " + focusLabel(m.focus))
-	projectView := lipgloss.JoinVertical(lipgloss.Left, panelTitle("PROJECTS"), m.projectView(), m.selectedResourceView())
+	projectView := lipgloss.JoinVertical(lipgloss.Left, panelTitle("PROJECTS"), m.projectView())
 	main := lipgloss.JoinVertical(lipgloss.Left, m.editorView(), m.resultView())
 	historyView := lipgloss.JoinVertical(lipgloss.Left, panelTitle("RUN HISTORY"), m.historyView())
 	footer := m.shortcutView()
 	status := lipgloss.NewStyle().Foreground(accent).Render("● " + m.status)
 	validation := lipgloss.NewStyle().Foreground(muted).Render(m.validation)
 	workspace := lipgloss.JoinHorizontal(lipgloss.Top, projectView, "  ", main, "  ", historyView)
-	view := lipgloss.JoinVertical(lipgloss.Left, header, tabStrip, focusIndicator, "", workspace, "", status, validation, footer)
+	contextInfo := m.contextInfoView()
+	view := lipgloss.JoinVertical(lipgloss.Left, header, tabStrip, focusIndicator, "", workspace, contextInfo, status, validation, footer)
 	if m.showHelp {
 		return m.helpView()
+	}
+	if m.completionOpen && len(m.completionItems) > 0 {
+		view = m.overlayCompletion(view)
 	}
 	return view
 }
@@ -968,6 +1158,12 @@ func (m model) shortcutView() string {
 	if m.focus == focusResults && m.width < 100 {
 		contextLabel = "RESULTS  arrows rows/cols"
 	}
+	if m.focus == focusEditor && m.width < 140 {
+		contextLabel = "EDITOR  Ctrl+R run  ·  auto-complete"
+	}
+	if m.focus == focusEditor && m.width < 100 {
+		contextLabel = "EDITOR  Ctrl+R"
+	}
 	contextControls := contextStyle.Render(contextLabel)
 	return lipgloss.JoinHorizontal(lipgloss.Top, tabControls, " ", contextControls)
 }
@@ -977,7 +1173,7 @@ func focusShortcutsLabel(current focus) string {
 	case focusProjects:
 		return "PROJECTS  Up/Down select  ·  Left/Right expand  ·  Ctrl+H hidden  ·  Enter info"
 	case focusEditor:
-		return "QUERY EDITOR  Ctrl+R run  ·  Enter newline"
+		return "QUERY EDITOR  Ctrl+R run  ·  auto-complete as you type  ·  Enter newline"
 	case focusResults:
 		return "RESULTS  Up/Down rows  ·  Left/Right columns"
 	case focusHistory:
@@ -1042,26 +1238,42 @@ func (m model) projectView() string {
 	return boxStyle.Render(content)
 }
 
-func (m model) selectedResourceView() string {
-	if len(m.projects) == 0 || m.active < 0 || m.active >= len(m.projects) {
-		return ""
-	}
-	name := m.projects[m.active].Name
+func (m model) contextInfoView() string {
+	name, detail := m.contextInfo()
+	width := max(8, m.width-2)
 	if name == "" {
-		name = m.projects[m.active].ID
+		return lipgloss.NewStyle().Width(width).Height(2).Render("")
 	}
-	if m.selectedDataset >= 0 && m.selectedDataset < len(m.projects[m.active].Resources) {
-		dataset := m.projects[m.active].Resources[m.selectedDataset]
-		name = dataset.Name
-		if m.selectedChild >= 0 && m.selectedChild < len(dataset.Children) {
-			name = dataset.Children[m.selectedChild].Name
-		}
+	lines := wrapText(name, width)
+	if detail != "" {
+		lines = append(lines, wrapText(detail, width)...)
 	}
-	lines := wrapText(name, max(8, m.projectPanelWidth()-2))
+	if len(lines) > 2 {
+		lines = lines[:2]
+	}
 	for len(lines) < 2 {
 		lines = append(lines, "")
 	}
-	return lipgloss.NewStyle().Foreground(ink).Width(m.projectPanelWidth()).Height(2).Render(strings.Join(lines, "\n"))
+	return lipgloss.NewStyle().Foreground(ink).Width(width).Height(2).Render(strings.Join(lines, "\n"))
+}
+
+func (m model) contextInfo() (string, string) {
+	if m.focus == focusEditor && m.completionOpen && len(m.completionItems) > 0 {
+		item := m.completionItems[m.completionCursor]
+		return item.Label, item.Detail
+	}
+	if len(m.projects) == 0 || m.active < 0 || m.active >= len(m.projects) {
+		return "", ""
+	}
+	name := m.projects[m.active].ID
+	if m.selectedDataset >= 0 && m.selectedDataset < len(m.projects[m.active].Resources) {
+		dataset := m.projects[m.active].Resources[m.selectedDataset]
+		name = m.projects[m.active].ID + "." + dataset.Name
+		if m.selectedChild >= 0 && m.selectedChild < len(dataset.Children) {
+			name += "." + dataset.Children[m.selectedChild].Name
+		}
+	}
+	return name, ""
 }
 
 func (m model) projectRows() []projectRow {
@@ -1416,7 +1628,89 @@ func maxInt(a, b int) int {
 
 func (m model) editorView() string {
 	title := lipgloss.NewStyle().Foreground(accent).Bold(true).Render("QUERY EDITOR")
-	return lipgloss.JoinVertical(lipgloss.Left, title, m.panelBoxStyle(focusEditor).Background(panel).Render(m.tabs[m.activeTab].editor.View()))
+	box := m.panelBoxStyle(focusEditor).Background(panel).Render(m.tabs[m.activeTab].editor.View())
+	return lipgloss.JoinVertical(lipgloss.Left, title, box)
+}
+
+func (m model) cursorScreenPosition() (int, int) {
+	editor := m.tabs[m.activeTab].editor
+	info := editor.LineInfo()
+	gutterWidth := 0
+	if editor.ShowLineNumbers {
+		gutterWidth = len(strconv.Itoa(editor.MaxHeight)) + 2
+	}
+	col := lipgloss.Width(editor.Prompt) + gutterWidth + info.StartColumn + info.ColumnOffset
+	row := 4 + 1 + 1 + editor.Line() + info.RowOffset
+	return row, lipgloss.Width(m.projectView()) + 2 + 1 + col
+}
+
+func (m model) overlayCompletion(view string) string {
+	popup := m.completionView()
+	popupWidth := lipgloss.Width(popup)
+	popupHeight := lipgloss.Height(popup)
+	row, col := m.cursorScreenPosition()
+	row++
+	if col+popupWidth > m.width {
+		col = max(0, m.width-popupWidth)
+	}
+	lines := strings.Split(view, "\n")
+	if row+popupHeight > len(lines) {
+		row = max(0, len(lines)-popupHeight)
+	}
+	return overlay(view, popup, row, col)
+}
+
+func overlay(base, popup string, row, col int) string {
+	baseLines := strings.Split(base, "\n")
+	popupLines := strings.Split(popup, "\n")
+	popupWidth := lipgloss.Width(popup)
+	for index, popupLine := range popupLines {
+		target := row + index
+		if target < 0 || target >= len(baseLines) {
+			continue
+		}
+		line := baseLines[target]
+		lineWidth := lipgloss.Width(line)
+		left := ansi.Cut(line, 0, minInt(col, lineWidth))
+		if pad := col - lipgloss.Width(left); pad > 0 {
+			left += strings.Repeat(" ", pad)
+		}
+		right := ""
+		if col+popupWidth < lineWidth {
+			right = ansi.Cut(line, col+popupWidth, lineWidth)
+		}
+		baseLines[target] = left + popupLine + right
+	}
+	return strings.Join(baseLines, "\n")
+}
+
+func (m model) completionView() string {
+	maxRows := 6
+	start := 0
+	if m.completionCursor >= maxRows {
+		start = m.completionCursor - maxRows + 1
+	}
+	end := minInt(len(m.completionItems), start+maxRows)
+	width := 18
+	for index := start; index < end; index++ {
+		item := m.completionItems[index]
+		if w := lipgloss.Width(item.Label) + lipgloss.Width(item.Detail) + 5; w > width {
+			width = w
+		}
+	}
+	width = minInt(width, 36)
+	lines := make([]string, 0, end-start)
+	for index := start; index < end; index++ {
+		item := m.completionItems[index]
+		line := truncate(item.Label+"  "+item.Detail, width-2)
+		if index == m.completionCursor {
+			line = lipgloss.NewStyle().Foreground(accent).Bold(true).Render("▸ " + line)
+		} else {
+			line = lipgloss.NewStyle().Foreground(muted).Render("  " + line)
+		}
+		lines = append(lines, line)
+	}
+	return lipgloss.NewStyle().Width(width).Border(lipgloss.RoundedBorder()).BorderForeground(accent).Background(panel).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 }
 
 func (m model) resultView() string {
@@ -1578,7 +1872,7 @@ func formatValidationError(err error) string {
 }
 
 func (m model) helpView() string {
-	lines := []string{"KEYMAP", "", "ctrl+s             search all resources", "ctrl+h             show/hide hidden datasets", "tab / shift+tab   move focus", "ctrl+left/right   switch query tab", "ctrl+n             new query tab", "ctrl+w             close query tab", "up/down            select project or resource", "left/right         expand or collapse", "enter              inspect resource / newline", "ctrl+r             run query", "ctrl+enter         run when supported", "?                  close help", "q                  quit outside editor", "ctrl+c             quit"}
+	lines := []string{"KEYMAP", "", "ctrl+s             search all resources", "ctrl+h             show/hide hidden datasets", "editor             suggests completions as you type", "tab / shift+tab   move focus", "ctrl+left/right   switch query tab", "ctrl+n             new query tab", "ctrl+w             close query tab", "up/down            select project or resource", "left/right         expand or collapse", "enter              inspect resource / newline", "ctrl+r             run query", "ctrl+enter         run when supported", "?                  close help", "q                  quit outside editor", "ctrl+c             quit"}
 	return lipgloss.NewStyle().Width(50).Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(2).Render(strings.Join(lines, "\n"))
 }
 

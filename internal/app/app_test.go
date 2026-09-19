@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/xjrr/bigtui/internal/bigquery"
+	"github.com/xjrr/bigtui/internal/completion"
 	"github.com/xjrr/bigtui/internal/project"
 )
 
@@ -87,6 +88,76 @@ func TestCatalogLoadsDatasetsAndTablesOnExpansion(t *testing.T) {
 	}
 }
 
+func TestAutocompleteLoadsDatasetsOnlyForResourceContext(t *testing.T) {
+	loader := &catalogLoaderStub{}
+	state := initialModelWithProjectsAndLoader(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}), []project.Project{{ID: "project-1"}}, loader)
+	state.focus = focusEditor
+	state.tabs[0].editor.SetValue("SELECT cu")
+	state.tabs[0].editor.CursorEnd()
+	if command := state.refreshCompletion(); command != nil {
+		t.Fatal("typing a non-resource SQL prefix should not load datasets")
+	}
+	if loader.datasetCalls != 0 {
+		t.Fatalf("unexpected dataset request count: %d", loader.datasetCalls)
+	}
+	state.tabs[0].editor.SetValue("SELECT * FROM d")
+	state.tabs[0].editor.CursorEnd()
+	command := state.refreshCompletion()
+	if command == nil {
+		t.Fatal("resource completion should request datasets on demand")
+	}
+	updated, _ := state.Update(command())
+	state = updated.(model)
+	if loader.datasetCalls != 1 || loader.lastIncludeHidden {
+		t.Fatalf("unexpected default dataset request: calls=%d includeHidden=%v", loader.datasetCalls, loader.lastIncludeHidden)
+	}
+}
+
+func TestAutocompleteLoadsTablesForQualifiedDataset(t *testing.T) {
+	loader := &catalogLoaderStub{}
+	state := initialModelWithProjectsAndLoader(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}), []project.Project{{ID: "project-1", Resources: []project.Resource{{Name: "dataset-1", Kind: "dataset"}}}}, loader)
+	state.focus = focusEditor
+	state.datasetsLoaded[0] = true
+	state.tabs[0].editor.SetValue("SELECT * FROM `project-1`.`dataset-1`.")
+	state.tabs[0].editor.CursorEnd()
+	command := state.refreshCompletion()
+	if command == nil {
+		t.Fatal("qualified dataset completion should request tables on demand")
+	}
+	updated, _ := state.Update(command())
+	state = updated.(model)
+	if loader.tableCalls != 1 {
+		t.Fatalf("expected one table request, got %d", loader.tableCalls)
+	}
+	if !state.completionOpen || len(state.completionItems) == 0 || state.completionItems[0].Label != "table-1" {
+		t.Fatalf("expected table completion after loading: %#v", state.completionItems)
+	}
+}
+
+func TestAutocompleteDatasetLoadingHonorsHiddenDatasetToggle(t *testing.T) {
+	loader := &catalogLoaderStub{}
+	state := initialModelWithProjectsAndLoader(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}), []project.Project{{ID: "project-1"}}, loader)
+	state.focus = focusEditor
+	state.showHiddenDatasets = true
+	state.tabs[0].editor.SetValue("SELECT * FROM d")
+	state.tabs[0].editor.CursorEnd()
+	command := state.refreshCompletion()
+	if command == nil {
+		t.Fatal("resource completion should request datasets")
+	}
+	updated, _ := state.Update(command())
+	state = updated.(model)
+	if !loader.lastIncludeHidden {
+		t.Fatal("autocomplete should include hidden datasets when Ctrl+H mode is active")
+	}
+}
+
 func TestCtrlHTogglesHiddenDatasets(t *testing.T) {
 	loader := &catalogLoaderStub{}
 	state := initialModelWithProjectsAndLoader(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
@@ -103,6 +174,188 @@ func TestCtrlHTogglesHiddenDatasets(t *testing.T) {
 	state = updated.(model)
 	if !loader.lastIncludeHidden {
 		t.Fatal("enabled hidden-dataset mode should request hidden datasets")
+	}
+}
+
+func TestTypingOpensCompletionAndEnterInserts(t *testing.T) {
+	state := initialModelWithMock(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}), true)
+	state.focus = focusEditor
+	state.tabs[0].editor.SetValue("SELECT * FROM cus")
+	state.tabs[0].editor.CursorEnd()
+	if state.completionOpen {
+		t.Fatal("completion should not be open before typing")
+	}
+	updated, _ := state.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	state = updated.(model)
+	if !state.completionOpen || len(state.completionItems) == 0 {
+		t.Fatalf("typing a matching prefix should open completion automatically: open=%v items=%d", state.completionOpen, len(state.completionItems))
+	}
+	found := false
+	for state.completionItems[state.completionCursor].Label != "customers" {
+		if state.completionCursor >= len(state.completionItems)-1 {
+			break
+		}
+		updated, _ = state.Update(tea.KeyMsg{Type: tea.KeyDown})
+		state = updated.(model)
+	}
+	for _, item := range state.completionItems {
+		if item.Label == "customers" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected a customers table suggestion: %#v", state.completionItems)
+	}
+	if state.completionItems[state.completionCursor].Label != "customers" {
+		t.Fatalf("down navigation should reach the customers suggestion: %#v", state.completionItems)
+	}
+	updated, _ = state.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	state = updated.(model)
+	if state.completionOpen {
+		t.Fatal("enter should close the completion popup")
+	}
+	if !strings.HasSuffix(state.tabs[0].editor.Value(), "customers") {
+		t.Fatalf("enter should insert the selected completion in place of the typed prefix: %q", state.tabs[0].editor.Value())
+	}
+}
+
+func TestCompletionAcceptanceAddsQualifiedNameDelimiters(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		item  completion.Item
+		want  string
+	}{
+		{name: "project dot", value: "FROM demo", item: completion.Item{Label: "demo-project", Detail: "project", InsertText: "demo-project"}, want: "FROM demo-project."},
+		{name: "quoted dataset dot", value: "FROM `demo-project`.`cust", item: completion.Item{Label: "customers", Detail: "dataset · demo-project", InsertText: "customers"}, want: "FROM `demo-project`.`customers."},
+		{name: "quoted view close", value: "FROM `demo-project.customers.customer_v", item: completion.Item{Label: "customer_view", Detail: "view · customers", InsertText: "customer_view"}, want: "FROM `demo-project.customers.customer_view`"},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			state := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+				return bigquery.Result{}, nil
+			}))
+			state.tabs[0].editor.SetValue(testCase.value)
+			state.tabs[0].editor.CursorEnd()
+			state.completionItems = []completion.Item{testCase.item}
+			state.completionOpen = true
+			state.acceptCompletion()
+			if got := state.tabs[0].editor.Value(); got != testCase.want {
+				t.Fatalf("accepted completion = %q, want %q", got, testCase.want)
+			}
+		})
+	}
+}
+
+func TestCompletionAcceptanceRefreshesNextQualifiedLevel(t *testing.T) {
+	state := initialModelWithMock(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}), true)
+	state.tabs[0].editor.SetValue("FROM sandbox-")
+	state.tabs[0].editor.CursorEnd()
+	state.completionItems = []completion.Item{{Label: "sandbox-analytics", Detail: "project", InsertText: "sandbox-analytics"}}
+	state.completionOpen = true
+	state.acceptCompletion()
+	if got := state.tabs[0].editor.Value(); got != "FROM sandbox-analytics." {
+		t.Fatalf("accepted project = %q, want %q", got, "FROM sandbox-analytics.")
+	}
+	if !state.completionOpen || len(state.completionItems) == 0 {
+		t.Fatalf("expected dataset suggestions immediately after project dot: %#v", state.completionItems)
+	}
+	for _, item := range state.completionItems {
+		if item.Detail == "project" {
+			t.Fatalf("project suggestions should not reappear after project dot: %#v", state.completionItems)
+		}
+	}
+}
+
+func TestCompletionClosesWhenPrefixBecomesEmpty(t *testing.T) {
+	state := initialModelWithMock(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}), true)
+	state.focus = focusEditor
+	state.tabs[0].editor.SetValue("SELECT * FROM cust")
+	state.tabs[0].editor.CursorEnd()
+	updated, _ := state.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+	state = updated.(model)
+	if !state.completionOpen {
+		t.Fatal("expected completion open after typing a matching prefix")
+	}
+	updated, _ = state.Update(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
+	state = updated.(model)
+	if state.completionOpen {
+		t.Fatal("completion should close once the prefix becomes empty")
+	}
+}
+
+func TestEscClosesCompletionPopupWithoutChangingQuery(t *testing.T) {
+	state := initialModelWithMock(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}), true)
+	state.focus = focusEditor
+	state.tabs[0].editor.SetValue("SELECT * FROM cust")
+	state.tabs[0].editor.CursorEnd()
+	updated, _ := state.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+	state = updated.(model)
+	if !state.completionOpen {
+		t.Fatal("expected completion popup to open")
+	}
+	value := state.tabs[0].editor.Value()
+	updated, _ = state.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	state = updated.(model)
+	if state.completionOpen || len(state.completionItems) != 0 {
+		t.Fatal("esc should close the completion popup")
+	}
+	if state.tabs[0].editor.Value() != value {
+		t.Fatalf("esc should not modify the query: got %q, want %q", state.tabs[0].editor.Value(), value)
+	}
+}
+
+func TestOverlaySplicesPopupAtGivenPosition(t *testing.T) {
+	base := "AAAAAAAAAA\nBBBBBBBBBB\nCCCCCCCCCC"
+	got := overlay(base, "XY\nZW", 1, 3)
+	want := "AAAAAAAAAA\nBBBXYBBBBB\nCCCZWCCCCC"
+	if got != want {
+		t.Fatalf("overlay placed popup incorrectly:\ngot:  %q\nwant: %q", got, want)
+	}
+}
+
+func TestOverlayPadsShortLinesAndIgnoresOutOfRangeRows(t *testing.T) {
+	got := overlay("A\nB", "XYZ", 0, 3)
+	if got != "A  XYZ\nB" {
+		t.Fatalf("overlay should pad short lines before the popup column: %q", got)
+	}
+	got = overlay("A", "XYZ", 5, 0)
+	if got != "A" {
+		t.Fatalf("overlay should ignore rows outside the base content: %q", got)
+	}
+}
+
+func TestCompletionPopupOverlaysNearCursorWithoutGrowingTheView(t *testing.T) {
+	state := initialModelWithMock(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}), true)
+	state.width, state.height = 120, 40
+	state.focus = focusEditor
+	state.tabs[0].editor.SetValue("SELECT * FROM cust")
+	state.tabs[0].editor.CursorEnd()
+	baseView := state.View()
+	updated, _ := state.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+	state = updated.(model)
+	if !state.completionOpen {
+		t.Fatal("expected completion popup to open")
+	}
+	if strings.Contains(state.editorView(), "customers") {
+		t.Fatal("completion suggestions should not be appended inline in the editor panel")
+	}
+	overlaid := state.View()
+	if !contains(overlaid, "customers") {
+		t.Fatalf("overlaid view should contain the completion popup: %q", overlaid)
+	}
+	if lipgloss.Height(overlaid) != lipgloss.Height(baseView) {
+		t.Fatalf("overlay should not change the rendered view height: got %d, want %d", lipgloss.Height(overlaid), lipgloss.Height(baseView))
 	}
 }
 
@@ -359,7 +612,7 @@ func TestProjectIDIsTruncatedForSingleLineDisplay(t *testing.T) {
 	}
 }
 
-func TestSelectedResourceViewShowsFullNameWithoutBorder(t *testing.T) {
+func TestProjectContextShowsFullNameWithoutBorder(t *testing.T) {
 	state := initialModelWithProjects(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
 		return bigquery.Result{}, nil
 	}), []project.Project{{ID: "project-id", Name: "project-name", Resources: []project.Resource{{Name: "dataset-name", Kind: "dataset", Children: []project.Resource{{Name: "a-very-long-table-name", Kind: "table"}}}}}})
@@ -367,12 +620,43 @@ func TestSelectedResourceViewShowsFullNameWithoutBorder(t *testing.T) {
 	state.active = 0
 	state.selectedDataset = 0
 	state.selectedChild = 0
-	view := state.selectedResourceView()
-	if !contains(strings.ReplaceAll(strings.ReplaceAll(view, " ", ""), "\n", ""), "a-very-long-table-name") {
-		t.Fatalf("selected resource name is missing: %q", view)
+	view := state.contextInfoView()
+	compact := strings.ReplaceAll(strings.ReplaceAll(view, " ", ""), "\n", "")
+	if !contains(compact, "project-id.dataset-name.a-very-long-table-name") {
+		t.Fatalf("selected resource path is missing: %q", view)
 	}
 	if strings.Contains(view, "...") || strings.Contains(view, "─") || strings.Contains(view, "│") {
 		t.Fatalf("selected resource view should be untruncated and unbordered: %q", view)
+	}
+}
+
+func TestEditorContextShowsSelectedCompletionDescription(t *testing.T) {
+	state := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}))
+	state.width = 80
+	state.focus = focusEditor
+	state.completionOpen = true
+	state.completionItems = []completion.Item{{Label: "S2_CELLIDFROMPOINT", Detail: "Gets the S2 cell ID covering a point GEOGRAPHY value."}}
+	view := state.contextInfoView()
+	if !contains(view, "S2_CELLIDFROMPOINT") || !contains(view, "Gets the S2 cell ID") {
+		t.Fatalf("editor context should show selected completion details: %q", view)
+	}
+	if strings.Contains(view, "─") || strings.Contains(view, "│") {
+		t.Fatalf("editor context should be borderless: %q", view)
+	}
+}
+
+func TestDatasetContextShowsFullyQualifiedName(t *testing.T) {
+	state := initialModelWithProjects(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}), []project.Project{{ID: "project-id", Resources: []project.Resource{{Name: "dataset-name", Kind: "dataset"}}}})
+	state.width = 80
+	state.focus = focusProjects
+	state.selectedDataset = 0
+	state.selectedChild = -1
+	if got := strings.ReplaceAll(strings.ReplaceAll(state.contextInfoView(), " ", ""), "\n", ""); !contains(got, "project-id.dataset-name") {
+		t.Fatalf("dataset context should be fully qualified: %q", got)
 	}
 }
 
