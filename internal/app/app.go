@@ -871,7 +871,7 @@ func (m model) View() string {
 	header := lipgloss.NewStyle().Foreground(ink).Bold(true).Render("BIGTUI") + "  " + lipgloss.NewStyle().Foreground(muted).Render("BigQuery workspace")
 	tabStrip := m.tabView()
 	focusIndicator := lipgloss.NewStyle().Foreground(accent).Bold(true).Render("FOCUS: " + focusLabel(m.focus))
-	projectView := lipgloss.JoinVertical(lipgloss.Left, panelTitle("PROJECTS"), m.projectView())
+	projectView := lipgloss.JoinVertical(lipgloss.Left, panelTitle("PROJECTS"), m.projectView(), m.selectedResourceView())
 	main := lipgloss.JoinVertical(lipgloss.Left, m.editorView(), m.resultView())
 	historyView := lipgloss.JoinVertical(lipgloss.Left, panelTitle("RUN HISTORY"), m.historyView())
 	footer := m.shortcutView()
@@ -997,6 +997,28 @@ func (m model) projectView() string {
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return boxStyle.Render(content)
+}
+
+func (m model) selectedResourceView() string {
+	if len(m.projects) == 0 || m.active < 0 || m.active >= len(m.projects) {
+		return ""
+	}
+	name := m.projects[m.active].Name
+	if name == "" {
+		name = m.projects[m.active].ID
+	}
+	if m.selectedDataset >= 0 && m.selectedDataset < len(m.projects[m.active].Resources) {
+		dataset := m.projects[m.active].Resources[m.selectedDataset]
+		name = dataset.Name
+		if m.selectedChild >= 0 && m.selectedChild < len(dataset.Children) {
+			name = dataset.Children[m.selectedChild].Name
+		}
+	}
+	lines := wrapText(name, max(8, m.projectPanelWidth()-2))
+	for len(lines) < 2 {
+		lines = append(lines, "")
+	}
+	return lipgloss.NewStyle().Foreground(ink).Width(m.projectPanelWidth()).Height(2).Render(strings.Join(lines, "\n"))
 }
 
 func (m model) projectRows() []projectRow {

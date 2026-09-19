@@ -312,6 +312,23 @@ func TestProjectIDIsTruncatedForSingleLineDisplay(t *testing.T) {
 	}
 }
 
+func TestSelectedResourceViewShowsFullNameWithoutBorder(t *testing.T) {
+	state := initialModelWithProjects(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}), []project.Project{{ID: "project-id", Name: "project-name", Resources: []project.Resource{{Name: "dataset-name", Kind: "dataset", Children: []project.Resource{{Name: "a-very-long-table-name", Kind: "table"}}}}}})
+	state.width = 80
+	state.active = 0
+	state.selectedDataset = 0
+	state.selectedChild = 0
+	view := state.selectedResourceView()
+	if !contains(strings.ReplaceAll(strings.ReplaceAll(view, " ", ""), "\n", ""), "a-very-long-table-name") {
+		t.Fatalf("selected resource name is missing: %q", view)
+	}
+	if strings.Contains(view, "...") || strings.Contains(view, "─") || strings.Contains(view, "│") {
+		t.Fatalf("selected resource view should be untruncated and unbordered: %q", view)
+	}
+}
+
 func TestProjectPaneScrollsAtViewportEdges(t *testing.T) {
 	children := make([]project.Resource, 20)
 	for index := range children {
