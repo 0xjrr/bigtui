@@ -626,7 +626,7 @@ func (m model) shortcutView() string {
 		contextLabel = "PROJECTS  arrows  ·  Enter"
 	}
 	if m.focus == focusResults && m.width < 140 {
-		contextLabel = "RESULTS  Up/Down rows  ·  Left/Right cols  ·  H/L"
+		contextLabel = "RESULTS  Up/Down rows  ·  Left/Right cols"
 	}
 	if m.focus == focusResults && m.width < 100 {
 		contextLabel = "RESULTS  arrows rows/cols"
@@ -642,7 +642,7 @@ func focusShortcutsLabel(current focus) string {
 	case focusEditor:
 		return "QUERY EDITOR  Ctrl+R run  ·  Enter newline"
 	case focusResults:
-		return "RESULTS  Up/Down rows  ·  Left/Right columns  ·  H/L aliases"
+		return "RESULTS  Up/Down rows  ·  Left/Right columns"
 	case focusHistory:
 		return "RUN HISTORY  Up/Down select  ·  Enter load"
 	case focusShortcuts:
