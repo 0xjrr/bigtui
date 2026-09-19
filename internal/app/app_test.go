@@ -221,6 +221,25 @@ func TestTypingOpensCompletionAndEnterInserts(t *testing.T) {
 	}
 }
 
+func TestSFAcceptanceInsertsSelectFromSnippet(t *testing.T) {
+	state := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}))
+	state.focus = focusEditor
+	state.tabs[0].editor.SetValue("s")
+	state.tabs[0].editor.CursorEnd()
+	updated, _ := state.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	state = updated.(model)
+	if !state.completionOpen || len(state.completionItems) == 0 || state.completionItems[0].InsertText != "SELECT * FROM `" {
+		t.Fatalf("expected sf snippet suggestion: %#v", state.completionItems)
+	}
+	updated, _ = state.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	state = updated.(model)
+	if got := state.tabs[0].editor.Value(); got != "SELECT * FROM `" {
+		t.Fatalf("sf acceptance = %q, want %q", got, "SELECT * FROM `")
+	}
+}
+
 func TestCompletionAcceptanceAddsQualifiedNameDelimiters(t *testing.T) {
 	tests := []struct {
 		name  string

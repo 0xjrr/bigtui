@@ -107,6 +107,16 @@ func TestKeywordProviderFiltersByPrefix(t *testing.T) {
 	}
 }
 
+func TestKeywordProviderSuggestsSFQuerySnippet(t *testing.T) {
+	items, err := KeywordProvider{}.Complete(context.Background(), Request{SQL: "sf", Cursor: 2})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(items) == 0 || items[0].Label != "SELECT * FROM `" || items[0].InsertText != "SELECT * FROM `" || items[0].Detail != "query snippet" {
+		t.Fatalf("unexpected sf snippet completion: %#v", items)
+	}
+}
+
 func TestKeywordProviderReturnsNoneWithoutPrefix(t *testing.T) {
 	items, err := KeywordProvider{}.Complete(context.Background(), Request{SQL: "SELECT * FROM t ", Cursor: 16})
 	if err != nil || len(items) != 0 {

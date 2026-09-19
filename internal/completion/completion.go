@@ -134,6 +134,11 @@ func (KeywordProvider) Complete(_ context.Context, request Request) ([]Item, err
 		return nil, nil
 	}
 	items := []Item{}
+	for _, snippet := range sqlSnippetMappings {
+		if prefix == snippet.Prefix {
+			items = append(items, Item{Label: snippet.Label, Detail: snippet.Description, InsertText: snippet.InsertText})
+		}
+	}
 	for _, keyword := range sqlKeywordMappings {
 		if strings.HasPrefix(keyword, prefix) {
 			items = append(items, Item{Label: keyword, Detail: "keyword", InsertText: keyword})
