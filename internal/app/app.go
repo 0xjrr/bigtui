@@ -785,7 +785,7 @@ func (m *model) moveProjectSelection(direction int) {
 				return
 			}
 		}
-		if direction > 0 && m.datasetExpanded(m.active, m.selectedDataset) {
+		if direction > 0 && m.selectedChild < 0 && m.datasetExpanded(m.active, m.selectedDataset) {
 			children := m.projects[m.active].Resources[m.selectedDataset].Children
 			if len(children) > 0 {
 				m.selectedChild = 0
@@ -1823,7 +1823,7 @@ func (m model) historyView() string {
 	return m.panelBoxStyle(focusHistory).Padding(1).Width(m.historyPanelWidth()).Height(max(10, m.height-15)).Render(content)
 }
 
-func (m model) projectPanelWidth() int { return max(18, minInt(24, m.width/5)) }
+func (m model) projectPanelWidth() int { return max(18, minInt(30, m.width/4)) }
 func (m model) historyPanelWidth() int { return max(22, minInt(30, m.width/4)) }
 
 func panelTitle(title string) string {

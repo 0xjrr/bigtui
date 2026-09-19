@@ -696,6 +696,37 @@ func TestProjectPaneScrollsAtViewportEdges(t *testing.T) {
 	}
 }
 
+func TestProjectSelectionContinuesPastExpandedChildren(t *testing.T) {
+	state := initialModelWithProjects(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}), []project.Project{
+		{ID: "project-1", Resources: []project.Resource{
+			{Name: "dataset-1", Kind: "dataset", Children: []project.Resource{{Name: "table-1", Kind: "table"}}},
+			{Name: "dataset-2", Kind: "dataset", Children: []project.Resource{{Name: "table-2", Kind: "table"}}},
+		}},
+		{ID: "project-2", Resources: []project.Resource{{Name: "dataset-3", Kind: "dataset"}}},
+	})
+	state.focus = focusProjects
+	state.expanded[0] = true
+	state.expandedDataset[state.datasetKey(0, 0)] = true
+	state.expandedDataset[state.datasetKey(0, 1)] = true
+	state.selectedDataset = 0
+	state.selectedChild = 0
+
+	state.moveProjectSelection(1)
+	if state.selectedDataset != 1 || state.selectedChild != -1 {
+		t.Fatalf("down from the last child should advance to the next dataset: dataset=%d child=%d", state.selectedDataset, state.selectedChild)
+	}
+	state.moveProjectSelection(1)
+	if state.selectedDataset != 1 || state.selectedChild != 0 {
+		t.Fatalf("down should enter the next expanded dataset: dataset=%d child=%d", state.selectedDataset, state.selectedChild)
+	}
+	state.moveProjectSelection(1)
+	if state.active != 1 || state.selectedDataset != -1 || state.selectedChild != -1 {
+		t.Fatalf("down from the last expanded dataset child should advance to the next project: project=%d dataset=%d child=%d", state.active, state.selectedDataset, state.selectedChild)
+	}
+}
+
 func TestFormatBytes(t *testing.T) {
 	for input, expected := range map[int64]string{0: "0 B", 1200: "1.2 KB", 1200000: "1.2 MB"} {
 		if got := formatBytes(input); got != expected {
@@ -767,6 +798,20 @@ func TestWorkspaceFitsWhenTerminalNarrows(t *testing.T) {
 		if got := lipgloss.Width(workspace); got > width {
 			t.Fatalf("results expanded workspace beyond terminal width %d: rendered %d", width, got)
 		}
+	}
+}
+
+func TestProjectPaneUsesQuarterTerminalWidth(t *testing.T) {
+	state := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}))
+	state.width = 120
+	if got, want := state.projectPanelWidth(), 30; got != want {
+		t.Fatalf("project pane width = %d, want %d", got, want)
+	}
+	state.width = 80
+	if got, want := state.projectPanelWidth(), 20; got != want {
+		t.Fatalf("project pane width = %d, want %d", got, want)
 	}
 }
 
