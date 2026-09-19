@@ -773,6 +773,7 @@ func (m model) infoLines() []string {
 			title = strings.ToUpper(child.Kind)
 			name = child.Name
 			details = []string{"Project  " + m.projects[m.active].ID, "Dataset  " + dataset.Name, "Type     " + child.Kind}
+			details = append(details, resourceInfoLines(child)...)
 			if len(child.ViewQuery) > 0 {
 				details = append(details, "", "Query")
 				for _, line := range wrapText(child.ViewQuery, max(20, m.width-10)) {
@@ -796,6 +797,50 @@ func (m model) infoLines() []string {
 		lines = append(lines, lipgloss.NewStyle().Foreground(muted).Render(detail))
 	}
 	return lines
+}
+
+func resourceInfoLines(resource project.Resource) []string {
+	lines := []string{"", "Table info"}
+	if resource.ID != "" {
+		lines = append(lines, "  Table ID       "+resource.ID)
+	}
+	if !resource.Created.IsZero() {
+		lines = append(lines, "  Created        "+resource.Created.Format(time.RFC3339))
+	}
+	if !resource.Modified.IsZero() {
+		lines = append(lines, "  Last modified  "+resource.Modified.Format(time.RFC3339))
+	}
+	if resource.Expiration.IsZero() {
+		lines = append(lines, "  Expiration     NEVER")
+	} else {
+		lines = append(lines, "  Expiration     "+resource.Expiration.Format(time.RFC3339))
+	}
+	if resource.Location != "" {
+		lines = append(lines, "  Data location  "+resource.Location)
+	}
+	if resource.LegacySQL {
+		lines = append(lines, "  Legacy SQL     true")
+	} else {
+		lines = append(lines, "  Legacy SQL     false")
+	}
+	if resource.Description != "" {
+		lines = append(lines, "  Description    "+resource.Description)
+	}
+	if len(resource.Labels) > 0 {
+		lines = append(lines, "  Labels         "+formatLabels(resource.Labels))
+	}
+	if resource.Kind == "table" || resource.Kind == "external" {
+		lines = append(lines, "", "Storage info", fmt.Sprintf("  Number of rows          %d", resource.NumRows), "  Total logical bytes     "+formatBytes(resource.NumBytes), "  Long term logical bytes "+formatBytes(resource.LongTermBytes))
+	}
+	return lines
+}
+
+func formatLabels(labels map[string]string) string {
+	parts := make([]string, 0, len(labels))
+	for key, value := range labels {
+		parts = append(parts, key+"="+value)
+	}
+	return strings.Join(parts, ", ")
 }
 
 func formatPreview(columns []string, rows [][]string, width int) []string {

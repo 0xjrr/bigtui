@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	cloudbigquery "cloud.google.com/go/bigquery"
 	cloudresourcemanager "google.golang.org/api/cloudresourcemanager/v1"
@@ -25,6 +26,18 @@ type Resource struct {
 	Preview        [][]string
 	ViewQuery      string
 	ExternalSource []string
+	ExternalFormat string
+	ID             string
+	Created        time.Time
+	Modified       time.Time
+	Expiration     time.Time
+	Location       string
+	Description    string
+	Labels         map[string]string
+	LegacySQL      bool
+	NumRows        uint64
+	NumBytes       int64
+	LongTermBytes  int64
 }
 
 func MockProjects() []Project {
@@ -100,8 +113,20 @@ func Load(ctx context.Context) ([]Project, error) {
 				}
 				child := Resource{Name: table.TableID, Kind: kind}
 				if err == nil {
+					child.ID = metadata.FullID
+					child.Created = metadata.CreationTime
+					child.Modified = metadata.LastModifiedTime
+					child.Expiration = metadata.ExpirationTime
+					child.Location = metadata.Location
+					child.Description = metadata.Description
+					child.Labels = metadata.Labels
+					child.NumRows = metadata.NumRows
+					child.NumBytes = metadata.NumBytes
+					child.LongTermBytes = metadata.NumLongTermBytes
 					child.ViewQuery = metadata.ViewQuery
+					child.LegacySQL = metadata.UseLegacySQL
 					if metadata.ExternalDataConfig != nil {
+						child.ExternalFormat = string(metadata.ExternalDataConfig.SourceFormat)
 						child.ExternalSource = append(child.ExternalSource, metadata.ExternalDataConfig.SourceURIs...)
 					} else {
 						for _, field := range metadata.Schema {
