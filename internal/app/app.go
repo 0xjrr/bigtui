@@ -875,7 +875,8 @@ func (m model) editorView() string {
 
 func (m model) resultView() string {
 	title := lipgloss.NewStyle().Foreground(accent).Bold(true).Render("RESULTS")
-	return lipgloss.JoinVertical(lipgloss.Left, title, m.panelBoxStyle(focusResults).Render(m.renderResults()))
+	resultHeight := max(3, m.tabs[m.activeTab].results.Height())
+	return lipgloss.JoinVertical(lipgloss.Left, title, m.panelBoxStyle(focusResults).Height(resultHeight).Render(m.renderResults()))
 }
 
 func (m model) renderResults() string {

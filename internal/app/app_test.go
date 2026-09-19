@@ -342,6 +342,17 @@ func TestResultsViewportDoesNotGrowWithRows(t *testing.T) {
 	}
 }
 
+func TestResultsPaneFillsAvailableHeight(t *testing.T) {
+	state := initialModelWithMock(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}), true)
+	updated, _ := state.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	state = updated.(model)
+	if got, want := lipgloss.Height(state.resultView()), state.tabs[0].results.Height()+3; got != want {
+		t.Fatalf("results pane height = %d, want %d", got, want)
+	}
+}
+
 func TestCtrlJRecordsQueryRun(t *testing.T) {
 	state := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
 		return bigquery.Result{}, nil
