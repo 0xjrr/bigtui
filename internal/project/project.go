@@ -7,9 +7,11 @@ import (
 	"time"
 
 	cloudbigquery "cloud.google.com/go/bigquery"
+	cloudbigqueryapi "google.golang.org/api/bigquery/v2"
 	cloudresourcemanager "google.golang.org/api/cloudresourcemanager/v1"
-	"google.golang.org/api/iterator"
 )
+
+const listPageSize = 1000
 
 type Project struct {
 	ID        string
@@ -22,6 +24,7 @@ type Resource struct {
 	Name                   string
 	Kind                   string
 	Children               []Resource
+	ChildrenLoaded         bool
 	Columns                []string
 	Preview                [][]string
 	ViewQuery              string
@@ -35,6 +38,7 @@ type Resource struct {
 	Description            string
 	Labels                 map[string]string
 	LegacySQL              bool
+	DetailsLoaded          bool
 	NumRows                uint64
 	NumBytes               int64
 	LongTermBytes          int64
@@ -52,8 +56,8 @@ func MockProjects() []Project {
 			Name:     "Sandbox Analytics",
 			Location: "US",
 			Resources: []Resource{
-				{Name: "events", Kind: "dataset", Children: []Resource{{Name: "customers", Kind: "table", Columns: []string{"customer_id", "name", "segment"}, Preview: [][]string{{"1", "Ada Lovelace", "enterprise"}}}, {Name: "customer_order_totals", Kind: "view", ViewQuery: "SELECT customer_id, name, SUM(amount) AS lifetime_value FROM orders GROUP BY customer_id, name"}, {Name: "partner_feed", Kind: "external", ExternalSource: []string{"gs://partner-feed/events/*.parquet"}}}},
-				{Name: "warehouse", Kind: "dataset", Children: []Resource{{Name: "orders", Kind: "table"}}},
+				{Name: "events", Kind: "dataset", Children: []Resource{{Name: "customers", Kind: "table", DetailsLoaded: true, Columns: []string{"customer_id", "name", "segment"}, Preview: [][]string{{"1", "Ada Lovelace", "enterprise"}}}, {Name: "customer_order_totals", Kind: "view", DetailsLoaded: true, ViewQuery: "SELECT customer_id, name, SUM(amount) AS lifetime_value FROM orders GROUP BY customer_id, name"}, {Name: "partner_feed", Kind: "external", DetailsLoaded: true, ExternalSource: []string{"gs://partner-feed/events/*.parquet"}}}},
+				{Name: "warehouse", Kind: "dataset", Children: []Resource{{Name: "orders", Kind: "table", DetailsLoaded: true}}},
 			},
 		},
 		{
@@ -61,113 +65,202 @@ func MockProjects() []Project {
 			Name:     "Sandbox Reporting",
 			Location: "EU",
 			Resources: []Resource{
-				{Name: "finance", Kind: "dataset", Children: []Resource{{Name: "monthly_revenue", Kind: "view"}}},
+				{Name: "finance", Kind: "dataset", Children: []Resource{{Name: "monthly_revenue", Kind: "view", DetailsLoaded: true}}},
 			},
 		},
 	}
 }
 
+type ResourceLoader interface {
+	LoadResource(context.Context, string, string, string) (Resource, error)
+}
+
+type CatalogLoader interface {
+	ResourceLoader
+	Load(context.Context) ([]Project, error)
+	LoadDatasets(context.Context, string) ([]Resource, error)
+	LoadTables(context.Context, string, string) ([]Resource, error)
+}
+
+type Loader struct {
+	service *cloudbigqueryapi.Service
+}
+
+func NewLoader(ctx context.Context) (*Loader, error) {
+	service, err := cloudbigqueryapi.NewService(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("create BigQuery service: %w", err)
+	}
+	return &Loader{service: service}, nil
+}
+
 func Load(ctx context.Context) ([]Project, error) {
+	loader, err := NewLoader(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return loader.Load(ctx)
+}
+
+func (l *Loader) Load(ctx context.Context) ([]Project, error) {
 	service, err := cloudresourcemanager.NewService(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("create Google Cloud project service: %w", err)
 	}
-	response, err := service.Projects.List().Do()
-	if err != nil {
-		return nil, fmt.Errorf("list Google Cloud projects: %w", err)
-	}
-	projects := make([]Project, 0, len(response.Projects))
-	for _, item := range response.Projects {
-		if strings.TrimSpace(item.ProjectId) == "" {
-			continue
+	projects := []Project{}
+	pageToken := ""
+	for {
+		call := service.Projects.List()
+		if pageToken != "" {
+			call.PageToken(pageToken)
 		}
-		projects = append(projects, Project{ID: item.ProjectId, Name: item.Name})
-	}
-	for index := range projects {
-		client, err := cloudbigquery.NewClient(ctx, projects[index].ID)
+		response, err := call.Do()
 		if err != nil {
-			return nil, fmt.Errorf("connect to project %s: %w", projects[index].ID, err)
+			return nil, fmt.Errorf("list Google Cloud projects: %w", err)
 		}
-		it := client.Datasets(ctx)
-		for {
-			dataset, err := it.Next()
-			if err == iterator.Done {
-				break
+		for _, item := range response.Projects {
+			if strings.TrimSpace(item.ProjectId) == "" {
+				continue
 			}
-			if err != nil {
-				client.Close()
-				return nil, fmt.Errorf("list datasets for project %s: %w", projects[index].ID, err)
-			}
-			resource := Resource{Name: dataset.DatasetID, Kind: "dataset"}
-			tables := dataset.Tables(ctx)
-			for {
-				table, err := tables.Next()
-				if err == iterator.Done {
-					break
-				}
-				if err != nil {
-					client.Close()
-					return nil, fmt.Errorf("list tables for dataset %s: %w", dataset.DatasetID, err)
-				}
-				kind := "table"
-				metadata, err := table.Metadata(ctx)
-				if err == nil && metadata.ExternalDataConfig != nil {
-					kind = "external"
-				} else if err == nil && metadata.ViewQuery != "" {
-					kind = "view"
-				}
-				child := Resource{Name: table.TableID, Kind: kind}
-				if err == nil {
-					child.ID = metadata.FullID
-					child.Created = metadata.CreationTime
-					child.Modified = metadata.LastModifiedTime
-					child.Expiration = metadata.ExpirationTime
-					child.Location = metadata.Location
-					child.Description = metadata.Description
-					child.Labels = metadata.Labels
-					child.NumRows = metadata.NumRows
-					child.NumBytes = metadata.NumBytes
-					child.LongTermBytes = metadata.NumLongTermBytes
-					child.RequirePartitionFilter = metadata.RequirePartitionFilter
-					if metadata.Clustering != nil {
-						child.Clustering = append(child.Clustering, metadata.Clustering.Fields...)
-					}
-					if metadata.TimePartitioning != nil {
-						child.PartitionType = string(metadata.TimePartitioning.Type)
-						child.PartitionField = metadata.TimePartitioning.Field
-						child.PartitionExpiration = metadata.TimePartitioning.Expiration
-					} else if metadata.RangePartitioning != nil {
-						child.PartitionType = "RANGE"
-						child.PartitionField = metadata.RangePartitioning.Field
-					}
-					child.ViewQuery = metadata.ViewQuery
-					child.LegacySQL = metadata.UseLegacySQL
-					if metadata.ExternalDataConfig != nil {
-						child.ExternalFormat = string(metadata.ExternalDataConfig.SourceFormat)
-						child.ExternalSource = append(child.ExternalSource, metadata.ExternalDataConfig.SourceURIs...)
-					} else {
-						for _, field := range metadata.Schema {
-							child.Columns = append(child.Columns, field.Name)
-						}
-						rows := table.Read(ctx)
-						for len(child.Preview) < 5 {
-							var values []cloudbigquery.Value
-							if readErr := rows.Next(&values); readErr != nil {
-								break
-							}
-							preview := make([]string, len(values))
-							for valueIndex, value := range values {
-								preview[valueIndex] = fmt.Sprint(value)
-							}
-							child.Preview = append(child.Preview, preview)
-						}
-					}
-				}
-				resource.Children = append(resource.Children, child)
-			}
-			projects[index].Resources = append(projects[index].Resources, resource)
+			projects = append(projects, Project{ID: item.ProjectId, Name: item.Name})
 		}
-		client.Close()
+		pageToken = response.NextPageToken
+		if pageToken == "" {
+			break
+		}
 	}
 	return projects, nil
+}
+
+func (l *Loader) LoadDatasets(ctx context.Context, projectID string) ([]Resource, error) {
+	datasets, err := l.listDatasets(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	resources := make([]Resource, 0, len(datasets))
+	for _, dataset := range datasets {
+		resources = append(resources, Resource{Name: dataset.DatasetReference.DatasetId, Kind: "dataset"})
+	}
+	return resources, nil
+}
+
+func (l *Loader) LoadTables(ctx context.Context, projectID, datasetID string) ([]Resource, error) {
+	tables, err := l.listTables(ctx, projectID, datasetID)
+	if err != nil {
+		return nil, err
+	}
+	resources := make([]Resource, 0, len(tables))
+	for _, table := range tables {
+		resources = append(resources, Resource{Name: table.TableReference.TableId, Kind: tableKind(table.Type)})
+	}
+	return resources, nil
+}
+
+func (l *Loader) listDatasets(ctx context.Context, projectID string) ([]*cloudbigqueryapi.DatasetListDatasets, error) {
+	datasets := []*cloudbigqueryapi.DatasetListDatasets{}
+	pageToken := ""
+	for {
+		call := l.service.Datasets.List(projectID).All(true).MaxResults(listPageSize).Context(ctx)
+		if pageToken != "" {
+			call.PageToken(pageToken)
+		}
+		response, err := call.Do()
+		if err != nil {
+			return nil, fmt.Errorf("list datasets for project %s: %w", projectID, err)
+		}
+		datasets = append(datasets, response.Datasets...)
+		pageToken = response.NextPageToken
+		if pageToken == "" {
+			return datasets, nil
+		}
+	}
+}
+
+func (l *Loader) listTables(ctx context.Context, projectID, datasetID string) ([]*cloudbigqueryapi.TableListTables, error) {
+	tables := []*cloudbigqueryapi.TableListTables{}
+	pageToken := ""
+	for {
+		call := l.service.Tables.List(projectID, datasetID).MaxResults(listPageSize).Context(ctx)
+		if pageToken != "" {
+			call.PageToken(pageToken)
+		}
+		response, err := call.Do()
+		if err != nil {
+			return nil, fmt.Errorf("list tables for dataset %s: %w", datasetID, err)
+		}
+		tables = append(tables, response.Tables...)
+		pageToken = response.NextPageToken
+		if pageToken == "" {
+			return tables, nil
+		}
+	}
+}
+
+func tableKind(tableType string) string {
+	switch tableType {
+	case "VIEW", "MATERIALIZED_VIEW":
+		return "view"
+	case "EXTERNAL":
+		return "external"
+	default:
+		return "table"
+	}
+}
+
+func (l *Loader) LoadResource(ctx context.Context, projectID, datasetID, tableID string) (Resource, error) {
+	client, err := cloudbigquery.NewClient(ctx, projectID)
+	if err != nil {
+		return Resource{}, fmt.Errorf("connect to project %s: %w", projectID, err)
+	}
+	defer client.Close()
+	table := client.Dataset(datasetID).Table(tableID)
+	metadata, err := table.Metadata(ctx)
+	if err != nil {
+		return Resource{}, fmt.Errorf("load metadata for %s.%s: %w", datasetID, tableID, err)
+	}
+	resource := Resource{
+		Name: tableID, Kind: "table", ID: metadata.FullID, DetailsLoaded: true,
+		Created: metadata.CreationTime, Modified: metadata.LastModifiedTime,
+		Expiration: metadata.ExpirationTime, Location: metadata.Location,
+		Description: metadata.Description, Labels: metadata.Labels,
+		NumRows: metadata.NumRows, NumBytes: metadata.NumBytes, LongTermBytes: metadata.NumLongTermBytes,
+		RequirePartitionFilter: metadata.RequirePartitionFilter, ViewQuery: metadata.ViewQuery,
+		LegacySQL: metadata.UseLegacySQL,
+	}
+	if metadata.ExternalDataConfig != nil {
+		resource.Kind = "external"
+		resource.ExternalFormat = string(metadata.ExternalDataConfig.SourceFormat)
+		resource.ExternalSource = append(resource.ExternalSource, metadata.ExternalDataConfig.SourceURIs...)
+	} else {
+		if metadata.ViewQuery != "" {
+			resource.Kind = "view"
+		}
+		for _, field := range metadata.Schema {
+			resource.Columns = append(resource.Columns, field.Name)
+		}
+		rows := table.Read(ctx)
+		for len(resource.Preview) < 5 {
+			var values []cloudbigquery.Value
+			if readErr := rows.Next(&values); readErr != nil {
+				break
+			}
+			preview := make([]string, len(values))
+			for valueIndex, value := range values {
+				preview[valueIndex] = fmt.Sprint(value)
+			}
+			resource.Preview = append(resource.Preview, preview)
+		}
+	}
+	if metadata.Clustering != nil {
+		resource.Clustering = append(resource.Clustering, metadata.Clustering.Fields...)
+	}
+	if metadata.TimePartitioning != nil {
+		resource.PartitionType = string(metadata.TimePartitioning.Type)
+		resource.PartitionField = metadata.TimePartitioning.Field
+		resource.PartitionExpiration = metadata.TimePartitioning.Expiration
+	} else if metadata.RangePartitioning != nil {
+		resource.PartitionType = "RANGE"
+		resource.PartitionField = metadata.RangePartitioning.Field
+	}
+	return resource, nil
 }

@@ -28,14 +28,25 @@ func main() {
 	}
 
 	projects := project.MockProjects()
+	var loader project.CatalogLoader
 	if !*mock {
-		projects, err = project.Load(ctx)
-		if err != nil {
+		catalogLoader, loadErr := project.NewLoader(ctx)
+		if loadErr != nil {
+			fmt.Fprintf(os.Stderr, "bigtui: %v\n", loadErr)
+			os.Exit(1)
+		}
+		loader = catalogLoader
+		projects = nil
+	}
+	if *mock {
+		program := app.NewWithProjects(client, projects)
+		if _, err := program.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "bigtui: %v\n", err)
 			os.Exit(1)
 		}
+		return
 	}
-	program := app.NewWithProjects(client, projects)
+	program := app.NewWithLoader(client, loader)
 	if _, err := program.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "bigtui: %v\n", err)
 		os.Exit(1)

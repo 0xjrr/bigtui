@@ -19,6 +19,69 @@ func (f clientFunc) Query(ctx context.Context, projectID, sql string) (bigquery.
 	return f(ctx, projectID, sql)
 }
 
+type catalogLoaderStub struct {
+	datasetCalls int
+	tableCalls   int
+}
+
+func (s *catalogLoaderStub) Load(context.Context) ([]project.Project, error) {
+	return []project.Project{{ID: "project-1", Name: "Project 1"}}, nil
+}
+
+func (s *catalogLoaderStub) LoadDatasets(context.Context, string) ([]project.Resource, error) {
+	s.datasetCalls++
+	return []project.Resource{{Name: "dataset-1", Kind: "dataset"}}, nil
+}
+
+func (s *catalogLoaderStub) LoadTables(context.Context, string, string) ([]project.Resource, error) {
+	s.tableCalls++
+	return []project.Resource{{Name: "table-1", Kind: "table"}}, nil
+}
+
+func (s *catalogLoaderStub) LoadResource(context.Context, string, string, string) (project.Resource, error) {
+	return project.Resource{}, nil
+}
+
+func TestCatalogLoadsDatasetsAndTablesOnExpansion(t *testing.T) {
+	loader := &catalogLoaderStub{}
+	state := initialModelWithProjectsAndLoader(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}), nil, loader)
+	command := state.Init()
+	if command == nil {
+		t.Fatal("initial catalog load should return a command")
+	}
+	message := state.loadProjects()()
+	updatedModel, _ := state.Update(message)
+	state = updatedModel.(model)
+	if len(state.projects) != 1 || len(state.projects[0].Resources) != 0 {
+		t.Fatalf("initial catalog load should not enumerate datasets: %#v", state.projects)
+	}
+	state.focus = focusProjects
+	updatedModel, command = state.Update(tea.KeyMsg{Type: tea.KeyRight})
+	state = updatedModel.(model)
+	if command == nil || loader.datasetCalls != 0 {
+		t.Fatalf("project expansion should schedule dataset loading: command=%v calls=%d", command != nil, loader.datasetCalls)
+	}
+	updatedModel, _ = state.Update(command())
+	state = updatedModel.(model)
+	if loader.datasetCalls != 1 || loader.tableCalls != 0 || len(state.projects[0].Resources) != 1 {
+		t.Fatalf("unexpected dataset loading state: datasets=%d tables=%d resources=%#v", loader.datasetCalls, loader.tableCalls, state.projects[0].Resources)
+	}
+	updatedModel, command = state.Update(tea.KeyMsg{Type: tea.KeyDown})
+	state = updatedModel.(model)
+	updatedModel, command = state.Update(tea.KeyMsg{Type: tea.KeyRight})
+	state = updatedModel.(model)
+	if command == nil {
+		t.Fatal("dataset expansion should schedule table loading")
+	}
+	updatedModel, _ = state.Update(command())
+	state = updatedModel.(model)
+	if loader.tableCalls != 1 || len(state.projects[0].Resources[0].Children) != 1 {
+		t.Fatalf("unexpected table loading state: calls=%d children=%#v", loader.tableCalls, state.projects[0].Resources[0].Children)
+	}
+}
+
 func TestInitialQueryStartsEmpty(t *testing.T) {
 	model := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
 		return bigquery.Result{}, nil
@@ -246,6 +309,42 @@ func TestProjectIDIsTruncatedForSingleLineDisplay(t *testing.T) {
 	}
 	if strings.Contains(value, "\n") {
 		t.Fatalf("truncated project ID contains a newline: %q", value)
+	}
+}
+
+func TestProjectPaneScrollsAtViewportEdges(t *testing.T) {
+	children := make([]project.Resource, 20)
+	for index := range children {
+		children[index] = project.Resource{Name: fmt.Sprintf("table_%02d", index), Kind: "table", DetailsLoaded: true}
+	}
+	state := initialModelWithProjects(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}), []project.Project{{ID: "project-1", Resources: []project.Resource{{Name: "dataset-1", Kind: "dataset", Children: children}}}})
+	state.width = 80
+	state.height = 20
+	state.focus = focusProjects
+	state.expanded[0] = true
+	state.selectedDataset = 0
+	state.expandedDataset[state.datasetKey(0, 0)] = true
+	state.selectedChild = 0
+	state.updateProjectScroll()
+
+	for index := 0; index < 10; index++ {
+		state.moveProjectSelection(1)
+	}
+	if state.projectScroll == 0 {
+		t.Fatal("moving down through tables should scroll the project pane")
+	}
+	scrollAtBottom := state.projectScroll
+	state.moveProjectSelection(-1)
+	if state.projectScroll != scrollAtBottom {
+		t.Fatalf("moving up within the bottom viewport should keep the pane down: got %d, want %d", state.projectScroll, scrollAtBottom)
+	}
+	for index := 0; index < 20; index++ {
+		state.moveProjectSelection(-1)
+	}
+	if state.projectScroll != 0 {
+		t.Fatalf("moving to the first table should scroll the pane to the top: got %d", state.projectScroll)
 	}
 }
 

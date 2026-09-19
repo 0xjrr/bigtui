@@ -35,3 +35,18 @@ func TestMockProjectsContainTableKinds(t *testing.T) {
 		}
 	}
 }
+
+func TestTableKindMapsListResponseTypes(t *testing.T) {
+	tests := map[string]string{
+		"TABLE":             "table",
+		"VIEW":              "view",
+		"MATERIALIZED_VIEW": "view",
+		"EXTERNAL":          "external",
+		"SNAPSHOT":          "table",
+	}
+	for tableType, want := range tests {
+		if got := tableKind(tableType); got != want {
+			t.Errorf("tableKind(%q) = %q, want %q", tableType, got, want)
+		}
+	}
+}

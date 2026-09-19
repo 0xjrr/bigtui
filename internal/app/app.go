@@ -35,6 +35,32 @@ type queryFinished struct {
 
 type queryAnalyzed struct{ analysis bigquery.Analysis }
 
+type projectsLoaded struct {
+	projects []project.Project
+	err      error
+}
+
+type datasetsLoaded struct {
+	projectIndex int
+	resources    []project.Resource
+	err          error
+}
+
+type tablesLoaded struct {
+	projectIndex int
+	datasetIndex int
+	resources    []project.Resource
+	err          error
+}
+
+type resourceLoaded struct {
+	projectIndex int
+	datasetIndex int
+	childIndex   int
+	resource     project.Resource
+	err          error
+}
+
 type runRecord struct {
 	sql     string
 	started time.Time
@@ -65,8 +91,14 @@ type searchResult struct {
 	dataset      string
 }
 
+type projectRow struct {
+	text     string
+	selected bool
+}
+
 type model struct {
 	client          bigquery.Client
+	loader          project.CatalogLoader
 	projects        []project.Project
 	active          int
 	focus           focus
@@ -87,6 +119,12 @@ type model struct {
 	searchInput     textinput.Model
 	searchResults   []searchResult
 	searchCursor    int
+	resourceLoading bool
+	projectLoading  map[int]bool
+	datasetLoading  map[string]bool
+	datasetsLoaded  map[int]bool
+	tablesLoaded    map[string]bool
+	projectScroll   int
 }
 
 var (
@@ -113,7 +151,15 @@ func NewWithMock(client bigquery.Client, mock bool) *tea.Program {
 }
 
 func NewWithProjects(client bigquery.Client, projects []project.Project) *tea.Program {
-	return tea.NewProgram(initialModelWithProjects(client, projects), tea.WithAltScreen())
+	return NewWithProjectsAndLoader(client, projects, nil)
+}
+
+func NewWithProjectsAndLoader(client bigquery.Client, projects []project.Project, loader project.CatalogLoader) *tea.Program {
+	return tea.NewProgram(initialModelWithProjectsAndLoader(client, projects, loader), tea.WithAltScreen())
+}
+
+func NewWithLoader(client bigquery.Client, loader project.CatalogLoader) *tea.Program {
+	return tea.NewProgram(initialModelWithProjectsAndLoader(client, nil, loader), tea.WithAltScreen())
 }
 
 func initialModelWithMock(client bigquery.Client, mock bool) model {
@@ -125,16 +171,25 @@ func initialModelWithMock(client bigquery.Client, mock bool) model {
 }
 
 func initialModelWithProjects(client bigquery.Client, projects []project.Project) model {
+	return initialModelWithProjectsAndLoader(client, projects, nil)
+}
+
+func initialModelWithProjectsAndLoader(client bigquery.Client, projects []project.Project, loader project.CatalogLoader) model {
 	tab := newQueryTab("Query 1", "")
 	tab.editor.Focus()
 	searchInput := textinput.New()
 	searchInput.Placeholder = "Search projects, datasets, tables, and views..."
 	searchInput.CharLimit = 120
+	status := "Ready. Ctrl+R runs the query."
+	if loader != nil && len(projects) == 0 {
+		status = "Loading projects..."
+	}
 	return model{
-		client: client, projects: projects, focus: focusEditor,
+		client: client, loader: loader, projects: projects, focus: focusEditor,
 		tabs:     []queryTab{tab},
-		status:   "Ready. Ctrl+R runs the query.",
+		status:   status,
 		expanded: make([]bool, len(projects)), selectedDataset: -1, selectedChild: -1, expandedDataset: map[string]bool{},
+		projectLoading: map[int]bool{}, datasetLoading: map[string]bool{}, datasetsLoaded: map[int]bool{}, tablesLoaded: map[string]bool{},
 		searchInput: searchInput,
 	}
 }
@@ -151,7 +206,12 @@ func newQueryTab(title, sql string) queryTab {
 	return queryTab{title: title, editor: editor, results: resultTable}
 }
 
-func (m model) Init() tea.Cmd { return textarea.Blink }
+func (m model) Init() tea.Cmd {
+	if m.loader != nil && len(m.projects) == 0 {
+		return tea.Batch(textarea.Blink, m.loadProjects())
+	}
+	return textarea.Blink
+}
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -160,6 +220,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for index := range m.tabs {
 			m.resizeTab(index)
 		}
+		m.updateProjectScroll()
 	case queryFinished:
 		if msg.tab < 0 || msg.tab >= len(m.tabs) {
 			return m, nil
@@ -183,6 +244,61 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.validation = "0 Invalid · " + truncate(formatValidationError(msg.analysis.Err), 70)
 		} else if msg.analysis.Valid {
 			m.validation = fmt.Sprintf("1 Valid · %s processed", formatBytes(msg.analysis.BytesProcessed))
+		}
+	case projectsLoaded:
+		if msg.err != nil {
+			m.status = "Project loading failed: " + msg.err.Error()
+			return m, nil
+		}
+		m.projects = msg.projects
+		m.expanded = make([]bool, len(msg.projects))
+		m.selectedDataset = -1
+		m.selectedChild = -1
+		m.projectLoading = map[int]bool{}
+		m.datasetLoading = map[string]bool{}
+		m.datasetsLoaded = map[int]bool{}
+		m.tablesLoaded = map[string]bool{}
+		m.projectScroll = 0
+		m.updateProjectScroll()
+		m.status = fmt.Sprintf("Ready. Loaded %d projects.", len(msg.projects))
+	case datasetsLoaded:
+		m.projectLoading[msg.projectIndex] = false
+		if msg.err != nil {
+			m.status = "Dataset loading failed: " + msg.err.Error()
+			return m, nil
+		}
+		if msg.projectIndex >= 0 && msg.projectIndex < len(m.projects) {
+			m.projects[msg.projectIndex].Resources = msg.resources
+			m.datasetsLoaded[msg.projectIndex] = true
+			m.updateProjectScroll()
+			m.status = fmt.Sprintf("Loaded %d datasets.", len(msg.resources))
+		}
+	case tablesLoaded:
+		key := m.datasetKey(msg.projectIndex, msg.datasetIndex)
+		m.datasetLoading[key] = false
+		if msg.err != nil {
+			m.status = "Table loading failed: " + msg.err.Error()
+			return m, nil
+		}
+		if msg.projectIndex >= 0 && msg.projectIndex < len(m.projects) && msg.datasetIndex >= 0 && msg.datasetIndex < len(m.projects[msg.projectIndex].Resources) {
+			m.projects[msg.projectIndex].Resources[msg.datasetIndex].Children = msg.resources
+			m.projects[msg.projectIndex].Resources[msg.datasetIndex].ChildrenLoaded = true
+			m.tablesLoaded[key] = true
+			m.updateProjectScroll()
+			m.status = fmt.Sprintf("Loaded %d tables/views.", len(msg.resources))
+		}
+	case resourceLoaded:
+		m.resourceLoading = false
+		if msg.err != nil {
+			m.status = "Resource details failed: " + msg.err.Error()
+			return m, nil
+		}
+		if msg.projectIndex < len(m.projects) && msg.datasetIndex >= 0 && msg.datasetIndex < len(m.projects[msg.projectIndex].Resources) {
+			dataset := &m.projects[msg.projectIndex].Resources[msg.datasetIndex]
+			if msg.childIndex >= 0 && msg.childIndex < len(dataset.Children) {
+				dataset.Children[msg.childIndex] = msg.resource
+				m.status = "Loaded details for " + msg.resource.Name
+			}
 		}
 	case tea.KeyMsg:
 		if m.searchOpen {
@@ -290,6 +406,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.focus == focusProjects && len(m.projects) > 0 {
 				m.showInfo = true
 				m.infoScroll = 0
+				if m.selectedDataset >= 0 && m.selectedChild >= 0 {
+					child := m.projects[m.active].Resources[m.selectedDataset].Children[m.selectedChild]
+					if !child.DetailsLoaded && m.loader != nil && !m.resourceLoading {
+						m.resourceLoading = true
+						m.status = "Loading details for " + child.Name + "..."
+						return m, m.loadResource(m.active, m.selectedDataset, m.selectedChild)
+					}
+				}
 				return m, nil
 			}
 			if m.focus == focusHistory && len(m.tabs[m.activeTab].history) > 0 {
@@ -329,7 +453,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "right", "l":
 			if m.focus == focusProjects {
-				m.expandProject()
+				return m, m.expandProject()
 			}
 			if m.focus == focusResults {
 				m.moveResultColumn(1)
@@ -438,6 +562,7 @@ func (m *model) selectSearchResult() {
 }
 
 func (m *model) moveProjectSelection(direction int) {
+	defer m.updateProjectScroll()
 	if len(m.projects) == 0 {
 		return
 	}
@@ -524,17 +649,30 @@ func (m model) datasetExpanded(projectIndex, resourceIndex int) bool {
 	return m.expandedDataset[m.datasetKey(projectIndex, resourceIndex)]
 }
 
-func (m *model) expandProject() {
+func (m *model) expandProject() tea.Cmd {
+	defer m.updateProjectScroll()
 	if m.selectedDataset >= 0 {
 		m.expandedDataset[m.datasetKey(m.active, m.selectedDataset)] = true
-		return
+		if m.loader != nil && !m.tablesLoaded[m.datasetKey(m.active, m.selectedDataset)] && !m.datasetLoading[m.datasetKey(m.active, m.selectedDataset)] {
+			m.datasetLoading[m.datasetKey(m.active, m.selectedDataset)] = true
+			m.status = "Loading tables and views..."
+			return m.loadTables(m.active, m.selectedDataset)
+		}
+		return nil
 	}
 	if m.active >= 0 && m.active < len(m.expanded) {
 		m.expanded[m.active] = true
+		if m.loader != nil && !m.datasetsLoaded[m.active] && !m.projectLoading[m.active] {
+			m.projectLoading[m.active] = true
+			m.status = "Loading datasets..."
+			return m.loadDatasets(m.active)
+		}
 	}
+	return nil
 }
 
 func (m *model) collapseProject() {
+	defer m.updateProjectScroll()
 	if m.selectedChild >= 0 {
 		m.selectedChild = -1
 		return
@@ -629,6 +767,44 @@ func (m model) runQuery(historyIndex int) tea.Cmd {
 	return func() tea.Msg {
 		result, err := m.client.Query(context.Background(), projectID, sql)
 		return queryFinished{result: result, err: err, tab: tab, history: historyIndex}
+	}
+}
+
+func (m model) loadResource(projectIndex, datasetIndex, childIndex int) tea.Cmd {
+	loader := m.loader
+	projectID := m.projects[projectIndex].ID
+	datasetID := m.projects[projectIndex].Resources[datasetIndex].Name
+	tableID := m.projects[projectIndex].Resources[datasetIndex].Children[childIndex].Name
+	return func() tea.Msg {
+		resource, err := loader.LoadResource(context.Background(), projectID, datasetID, tableID)
+		return resourceLoaded{projectIndex: projectIndex, datasetIndex: datasetIndex, childIndex: childIndex, resource: resource, err: err}
+	}
+}
+
+func (m model) loadProjects() tea.Cmd {
+	loader := m.loader
+	return func() tea.Msg {
+		projects, err := loader.Load(context.Background())
+		return projectsLoaded{projects: projects, err: err}
+	}
+}
+
+func (m model) loadDatasets(projectIndex int) tea.Cmd {
+	loader := m.loader
+	projectID := m.projects[projectIndex].ID
+	return func() tea.Msg {
+		resources, err := loader.LoadDatasets(context.Background(), projectID)
+		return datasetsLoaded{projectIndex: projectIndex, resources: resources, err: err}
+	}
+}
+
+func (m model) loadTables(projectIndex, datasetIndex int) tea.Cmd {
+	loader := m.loader
+	projectID := m.projects[projectIndex].ID
+	datasetID := m.projects[projectIndex].Resources[datasetIndex].Name
+	return func() tea.Msg {
+		resources, err := loader.LoadTables(context.Background(), projectID, datasetID)
+		return tablesLoaded{projectIndex: projectIndex, datasetIndex: datasetIndex, resources: resources, err: err}
 	}
 }
 
@@ -788,7 +964,8 @@ func focusLabel(current focus) string {
 }
 
 func (m model) projectView() string {
-	boxStyle := m.panelBoxStyle(focusProjects).Padding(1).Width(m.projectPanelWidth()).Height(max(10, m.height-15))
+	panelHeight := max(10, m.height-15)
+	boxStyle := m.panelBoxStyle(focusProjects).Padding(1).Width(m.projectPanelWidth()).Height(panelHeight)
 	if len(m.projects) == 0 {
 		content := lipgloss.JoinVertical(lipgloss.Left,
 			lipgloss.NewStyle().Foreground(muted).Render("No projects connected."),
@@ -797,53 +974,118 @@ func (m model) projectView() string {
 		)
 		return boxStyle.Render(content)
 	}
-	var lines []string
+	rows := m.projectRows()
+	selectedRow := 0
+	for index, row := range rows {
+		if row.selected {
+			selectedRow = index
+			break
+		}
+	}
+	viewportRows := max(1, panelHeight-4)
+	maxStart := max(0, len(rows)-viewportRows)
+	start := minInt(max(0, m.projectScroll), maxStart)
+	if selectedRow < start {
+		start = selectedRow
+	} else if selectedRow >= start+viewportRows {
+		start = selectedRow - viewportRows + 1
+	}
+	end := minInt(len(rows), start+viewportRows)
+	lines := make([]string, 0, end-start)
+	for _, row := range rows[start:end] {
+		lines = append(lines, row.text)
+	}
+	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
+	return boxStyle.Render(content)
+}
+
+func (m model) projectRows() []projectRow {
+	rows := []projectRow{}
+	nameWidth := max(8, m.projectPanelWidth()-6)
 	for i, item := range m.projects {
 		marker := "  "
-		if i == m.active && m.selectedDataset < 0 {
+		selected := i == m.active && m.selectedDataset < 0
+		if selected {
 			marker = "▸ "
 		}
 		name := item.Name
 		if name == "" {
 			name = item.ID
 		}
-		line := marker + name
-		if i == m.active {
+		line := marker + truncate(name, nameWidth)
+		if selected {
 			line = lipgloss.NewStyle().Foreground(accent).Bold(true).Render(line)
 		}
-		lines = append(lines, line)
+		rows = append(rows, projectRow{text: line, selected: selected})
 		if i < len(m.expanded) && m.expanded[i] {
+			if m.projectLoading[i] {
+				rows = append(rows, projectRow{text: lipgloss.NewStyle().Foreground(muted).Render("    Loading datasets...")})
+			}
 			for resourceIndex, resource := range item.Resources {
 				if resource.Kind != "dataset" {
 					continue
 				}
 				marker := "    "
-				if i == m.active && resourceIndex == m.selectedDataset {
+				selected := i == m.active && resourceIndex == m.selectedDataset && m.selectedChild < 0
+				if selected {
 					marker = "  ▸ "
 				}
-				line := marker + resourceIcon(resource.Kind) + " " + truncate(resource.Name, 13)
-				if i == m.active && resourceIndex == m.selectedDataset {
+				line := marker + resourceIcon(resource.Kind) + " " + truncate(resource.Name, max(8, m.projectPanelWidth()-9))
+				if selected {
 					line = lipgloss.NewStyle().Foreground(accent).Bold(true).Render(line)
 				}
-				lines = append(lines, line)
+				rows = append(rows, projectRow{text: line, selected: selected})
 				if i == m.active && m.datasetExpanded(i, resourceIndex) {
+					if m.datasetLoading[m.datasetKey(i, resourceIndex)] {
+						rows = append(rows, projectRow{text: lipgloss.NewStyle().Foreground(muted).Render("        Loading tables...")})
+					}
 					for childIndex, child := range resource.Children {
 						childMarker := "        "
-						if resourceIndex == m.selectedDataset && childIndex == m.selectedChild {
+						selected := resourceIndex == m.selectedDataset && childIndex == m.selectedChild
+						if selected {
 							childMarker = "      ▸ "
 						}
-						childLine := childMarker + resourceIcon(child.Kind) + " " + truncate(child.Name, 9)
-						if resourceIndex == m.selectedDataset && childIndex == m.selectedChild {
+						childLine := childMarker + resourceIcon(child.Kind) + " " + truncate(child.Name, max(6, m.projectPanelWidth()-13))
+						if selected {
 							childLine = lipgloss.NewStyle().Foreground(accent).Bold(true).Render(childLine)
+						} else {
+							childLine = lipgloss.NewStyle().Foreground(muted).Render(childLine)
 						}
-						lines = append(lines, lipgloss.NewStyle().Foreground(muted).Render(childLine))
+						rows = append(rows, projectRow{text: childLine, selected: selected})
 					}
 				}
 			}
 		}
 	}
-	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	return boxStyle.Render(content)
+	return rows
+}
+
+func (m *model) updateProjectScroll() {
+	if len(m.projects) == 0 {
+		m.projectScroll = 0
+		return
+	}
+	rows := m.projectRows()
+	selectedRow := 0
+	for index, row := range rows {
+		if row.selected {
+			selectedRow = index
+			break
+		}
+	}
+	viewportRows := max(1, max(10, m.height-15)-4)
+	if selectedRow < m.projectScroll {
+		m.projectScroll = selectedRow
+	} else if selectedRow >= m.projectScroll+viewportRows {
+		m.projectScroll = selectedRow - viewportRows + 1
+	}
+	maxStart := max(0, len(rows)-viewportRows)
+	if m.projectScroll > maxStart {
+		m.projectScroll = maxStart
+	}
+	if m.projectScroll < 0 {
+		m.projectScroll = 0
+	}
 }
 
 func (m model) panelBoxStyle(panelFocus focus) lipgloss.Style {
@@ -891,6 +1133,10 @@ func (m model) infoLines() []string {
 			title = strings.ToUpper(child.Kind)
 			name = child.Name
 			details = []string{"Project  " + m.projects[m.active].ID, "Dataset  " + dataset.Name, "Type     " + child.Kind}
+			if !child.DetailsLoaded {
+				details = append(details, "Details  Loading...")
+				return appendInfoLines([]string{panelTitle(title), "", lipgloss.NewStyle().Foreground(ink).Bold(true).Render(name), ""}, details)
+			}
 			details = append(details, resourceInfoLines(child)...)
 			if len(child.ViewQuery) > 0 {
 				details = append(details, "", "Query")
@@ -910,7 +1156,10 @@ func (m model) infoLines() []string {
 			}
 		}
 	}
-	lines := []string{panelTitle(title), "", lipgloss.NewStyle().Foreground(ink).Bold(true).Render(name), ""}
+	return appendInfoLines([]string{panelTitle(title), "", lipgloss.NewStyle().Foreground(ink).Bold(true).Render(name), ""}, details)
+}
+
+func appendInfoLines(lines []string, details []string) []string {
 	for _, detail := range details {
 		lines = append(lines, lipgloss.NewStyle().Foreground(muted).Render(detail))
 	}
