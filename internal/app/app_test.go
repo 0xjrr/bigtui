@@ -37,6 +37,27 @@ func TestMockInitializerLoadsFixtureCatalog(t *testing.T) {
 	}
 }
 
+func TestCtrlSOpensQualifiedResourceSearch(t *testing.T) {
+	state := initialModelWithMock(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}), true)
+	updated, _ := state.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	state = updated.(model)
+	if !state.searchOpen || len(state.searchResults) == 0 {
+		t.Fatal("ctrl+s should open a search with resources")
+	}
+	updated, _ = state.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	state = updated.(model)
+	if !contains(state.searchView(), "customers") || !contains(state.searchView(), "sandbox-analytics") {
+		t.Fatalf("search should show qualified resource locations: %q", state.searchView())
+	}
+	updated, _ = state.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	state = updated.(model)
+	if state.searchOpen || state.focus != focusProjects {
+		t.Fatal("enter should select a search result and return to Projects focus")
+	}
+}
+
 func TestProjectsTreeExpandsAndSelectsDatasets(t *testing.T) {
 	state := initialModelWithMock(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
 		return bigquery.Result{}, nil

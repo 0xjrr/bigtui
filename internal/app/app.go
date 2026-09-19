@@ -9,6 +9,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/xjrr/bigtui/internal/bigquery"
@@ -53,6 +54,17 @@ type queryTab struct {
 	resultOffset  int
 }
 
+type searchResult struct {
+	projectIndex int
+	datasetIndex int
+	childIndex   int
+	kind         string
+	name         string
+	project      string
+	projectID    string
+	dataset      string
+}
+
 type model struct {
 	client          bigquery.Client
 	projects        []project.Project
@@ -71,6 +83,10 @@ type model struct {
 	expandedDataset map[string]bool
 	showInfo        bool
 	infoScroll      int
+	searchOpen      bool
+	searchInput     textinput.Model
+	searchResults   []searchResult
+	searchCursor    int
 }
 
 var (
@@ -111,11 +127,15 @@ func initialModelWithMock(client bigquery.Client, mock bool) model {
 func initialModelWithProjects(client bigquery.Client, projects []project.Project) model {
 	tab := newQueryTab("Query 1", "")
 	tab.editor.Focus()
+	searchInput := textinput.New()
+	searchInput.Placeholder = "Search projects, datasets, tables, and views..."
+	searchInput.CharLimit = 120
 	return model{
 		client: client, projects: projects, focus: focusEditor,
 		tabs:     []queryTab{tab},
 		status:   "Ready. Ctrl+R runs the query.",
 		expanded: make([]bool, len(projects)), selectedDataset: -1, selectedChild: -1, expandedDataset: map[string]bool{},
+		searchInput: searchInput,
 	}
 }
 
@@ -165,6 +185,31 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.validation = fmt.Sprintf("1 Valid · %s processed", formatBytes(msg.analysis.BytesProcessed))
 		}
 	case tea.KeyMsg:
+		if m.searchOpen {
+			switch msg.String() {
+			case "esc", "ctrl+s":
+				m.searchOpen = false
+				m.searchInput.Blur()
+				return m, nil
+			case "enter":
+				m.selectSearchResult()
+				return m, nil
+			case "up", "ctrl+k":
+				if m.searchCursor > 0 {
+					m.searchCursor--
+				}
+				return m, nil
+			case "down", "ctrl+j":
+				if m.searchCursor < len(m.searchResults)-1 {
+					m.searchCursor++
+				}
+				return m, nil
+			}
+			var searchCmd tea.Cmd
+			m.searchInput, searchCmd = m.searchInput.Update(msg)
+			m.refreshSearch()
+			return m, searchCmd
+		}
 		if m.showInfo {
 			switch msg.String() {
 			case "esc", "enter", "q":
@@ -199,6 +244,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		switch msg.String() {
+		case "ctrl+s":
+			m.searchOpen = true
+			m.searchInput.SetValue("")
+			m.searchInput.Focus()
+			m.refreshSearch()
+			return m, nil
 		case "ctrl+n":
 			m.addTab()
 			return m, nil
@@ -320,6 +371,70 @@ func (m *model) applyFocus() {
 		m.tabs[m.activeTab].editor.Focus()
 	}
 	m.tabs[m.activeTab].results.SetCursor(0)
+}
+
+func (m *model) refreshSearch() {
+	term := strings.ToLower(strings.TrimSpace(m.searchInput.Value()))
+	m.searchResults = nil
+	for projectIndex, item := range m.projects {
+		projectName := item.Name
+		if projectName == "" {
+			projectName = item.ID
+		}
+		if term == "" || strings.Contains(strings.ToLower(projectName), term) || strings.Contains(strings.ToLower(item.ID), term) {
+			m.searchResults = append(m.searchResults, searchResult{projectIndex: projectIndex, datasetIndex: -1, childIndex: -1, kind: "project", name: projectName, project: projectName, projectID: item.ID})
+		}
+		for datasetIndex, resource := range item.Resources {
+			if resource.Kind != "dataset" {
+				continue
+			}
+			if matchesSearch(term, resource.Name, projectName, item.ID) {
+				m.searchResults = append(m.searchResults, searchResult{projectIndex: projectIndex, datasetIndex: datasetIndex, childIndex: -1, kind: "dataset", name: resource.Name, project: projectName, projectID: item.ID})
+			}
+			for childIndex, child := range resource.Children {
+				if matchesSearch(term, child.Name, projectName, item.ID, resource.Name) {
+					m.searchResults = append(m.searchResults, searchResult{projectIndex: projectIndex, datasetIndex: datasetIndex, childIndex: childIndex, kind: child.Kind, name: child.Name, project: projectName, projectID: item.ID, dataset: resource.Name})
+				}
+			}
+		}
+	}
+	if m.searchCursor >= len(m.searchResults) {
+		m.searchCursor = max(0, len(m.searchResults)-1)
+	}
+}
+
+func matchesSearch(term, name string, context ...string) bool {
+	if term == "" {
+		return true
+	}
+	values := append([]string{name}, context...)
+	for _, value := range values {
+		if strings.Contains(strings.ToLower(value), term) {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *model) selectSearchResult() {
+	if len(m.searchResults) == 0 {
+		return
+	}
+	result := m.searchResults[m.searchCursor]
+	m.active = result.projectIndex
+	m.selectedDataset = result.datasetIndex
+	m.selectedChild = result.childIndex
+	if result.projectIndex < len(m.expanded) {
+		m.expanded[result.projectIndex] = result.datasetIndex >= 0
+	}
+	if result.datasetIndex >= 0 {
+		m.expandedDataset[m.datasetKey(result.projectIndex, result.datasetIndex)] = result.childIndex >= 0
+	}
+	m.searchOpen = false
+	m.searchInput.Blur()
+	m.focus = focusProjects
+	m.applyFocus()
+	m.status = "Selected " + result.name
 }
 
 func (m *model) moveProjectSelection(direction int) {
@@ -574,6 +689,9 @@ func (m model) View() string {
 	if m.showInfo {
 		return m.infoView()
 	}
+	if m.searchOpen {
+		return m.searchView()
+	}
 	header := lipgloss.NewStyle().Foreground(ink).Bold(true).Render("BIGTUI") + "  " + lipgloss.NewStyle().Foreground(muted).Render("BigQuery workspace")
 	tabStrip := m.tabView()
 	focusIndicator := lipgloss.NewStyle().Foreground(accent).Bold(true).Render("FOCUS: " + focusLabel(m.focus))
@@ -799,6 +917,36 @@ func (m model) infoLines() []string {
 	return lines
 }
 
+func (m model) searchView() string {
+	modalWidth := max(50, m.width-4)
+	modalHeight := max(12, m.height-4)
+	lines := []string{panelTitle("SEARCH RESOURCES"), "", m.searchInput.View(), ""}
+	if len(m.searchResults) == 0 {
+		lines = append(lines, lipgloss.NewStyle().Foreground(muted).Render("No matching resources."))
+	} else {
+		maxRows := max(1, modalHeight-8)
+		start := 0
+		if m.searchCursor >= maxRows {
+			start = m.searchCursor - maxRows + 1
+		}
+		end := minInt(len(m.searchResults), start+maxRows)
+		for index := start; index < end; index++ {
+			result := m.searchResults[index]
+			location := result.project
+			if result.dataset != "" {
+				location += " / " + result.dataset
+			}
+			line := fmt.Sprintf("%-9s %-28s %s (%s)", strings.ToUpper(result.kind), truncate(result.name, 28), location, result.projectID)
+			if index == m.searchCursor {
+				line = lipgloss.NewStyle().Foreground(accent).Bold(true).Render("▸ " + line)
+			}
+			lines = append(lines, line)
+		}
+	}
+	lines = append(lines, "", lipgloss.NewStyle().Foreground(ink).Render("Up/Down select  ·  Enter open  ·  Esc close"))
+	return lipgloss.NewStyle().Width(modalWidth).Height(modalHeight).Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(2).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+}
+
 func resourceInfoLines(resource project.Resource) []string {
 	lines := []string{"", "Table info"}
 	if resource.ID != "" {
@@ -834,12 +982,20 @@ func resourceInfoLines(resource project.Resource) []string {
 	}
 	if resource.PartitionType != "" || resource.PartitionField != "" {
 		lines = append(lines, "", "Partitioning")
-		if resource.PartitionType != "" { lines = append(lines, "  Type             "+resource.PartitionType) }
-		if resource.PartitionField != "" { lines = append(lines, "  Field            "+resource.PartitionField) }
-		if resource.PartitionExpiration > 0 { lines = append(lines, "  Partition expiry "+resource.PartitionExpiration.String()) }
+		if resource.PartitionType != "" {
+			lines = append(lines, "  Type             "+resource.PartitionType)
+		}
+		if resource.PartitionField != "" {
+			lines = append(lines, "  Field            "+resource.PartitionField)
+		}
+		if resource.PartitionExpiration > 0 {
+			lines = append(lines, "  Partition expiry "+resource.PartitionExpiration.String())
+		}
 		lines = append(lines, fmt.Sprintf("  Require filter   %t", resource.RequirePartitionFilter))
 	}
-	if len(resource.Clustering) > 0 { lines = append(lines, "", "Clustering", "  Fields           "+strings.Join(resource.Clustering, ", ")) }
+	if len(resource.Clustering) > 0 {
+		lines = append(lines, "", "Clustering", "  Fields           "+strings.Join(resource.Clustering, ", "))
+	}
 	return lines
 }
 
@@ -1091,7 +1247,7 @@ func formatValidationError(err error) string {
 }
 
 func (m model) helpView() string {
-	lines := []string{"KEYMAP", "", "tab / shift+tab   move focus", "ctrl+left/right   switch query tab", "ctrl+n             new query tab", "ctrl+w             close query tab", "up/down            select project or resource", "left/right         expand or collapse", "enter              inspect resource / newline", "ctrl+r             run query", "ctrl+enter         run when supported", "?                  close help", "q                  quit outside editor", "ctrl+c             quit"}
+	lines := []string{"KEYMAP", "", "ctrl+s             search all resources", "tab / shift+tab   move focus", "ctrl+left/right   switch query tab", "ctrl+n             new query tab", "ctrl+w             close query tab", "up/down            select project or resource", "left/right         expand or collapse", "enter              inspect resource / newline", "ctrl+r             run query", "ctrl+enter         run when supported", "?                  close help", "q                  quit outside editor", "ctrl+c             quit"}
 	return lipgloss.NewStyle().Width(50).Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(2).Render(strings.Join(lines, "\n"))
 }
 
