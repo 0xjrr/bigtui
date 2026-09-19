@@ -105,6 +105,7 @@ type model struct {
 	loader             project.CatalogLoader
 	projects           []project.Project
 	active             int
+	billingProject     int
 	focus              focus
 	tabs               []queryTab
 	activeTab          int
@@ -261,6 +262,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.projects = msg.projects
 		m.expanded = make([]bool, len(msg.projects))
+		m.billingProject = 0
 		m.selectedDataset = -1
 		m.selectedChild = -1
 		m.projectLoading = map[int]bool{}
@@ -439,6 +441,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.focus == focusProjects {
 				return m, m.toggleHiddenDatasets()
 			}
+		case "ctrl+b":
+			if m.focus == focusProjects && m.active >= 0 && m.active < len(m.projects) {
+				m.billingProject = m.active
+				m.status = "Billing project: " + m.projects[m.billingProject].ID
+				return m, nil
+			}
 		case "ctrl+e":
 			if m.focus == focusProjects {
 				m.insertSelectedReference()
@@ -477,7 +485,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = "No project selected. Add a project first."
 				return m, nil
 			}
-			m.status = "Running query against " + m.projects[m.active].ID + "..."
+			m.status = "Running query against " + m.billingProjectID() + "..."
 			historyIndex := m.recordQuery()
 			return m, m.runQuery(historyIndex)
 		case "enter":
@@ -560,7 +568,7 @@ func (m model) analyzeQuery() tea.Cmd {
 	if !ok {
 		return nil
 	}
-	projectID := m.projects[m.active].ID
+	projectID := m.billingProjectID()
 	sql := m.tabs[m.activeTab].editor.Value()
 	return func() tea.Msg { return queryAnalyzed{analysis: analyzer.Analyze(context.Background(), projectID, sql)} }
 }
@@ -1008,13 +1016,23 @@ func (m *model) recordQuery() int {
 }
 
 func (m model) runQuery(historyIndex int) tea.Cmd {
-	projectID := m.projects[m.active].ID
+	projectID := m.billingProjectID()
 	tab := m.activeTab
 	sql := m.tabs[tab].editor.Value()
 	return func() tea.Msg {
 		result, err := m.client.Query(context.Background(), projectID, sql)
 		return queryFinished{result: result, err: err, tab: tab, history: historyIndex}
 	}
+}
+
+func (m model) billingProjectID() string {
+	if m.billingProject >= 0 && m.billingProject < len(m.projects) {
+		return m.projects[m.billingProject].ID
+	}
+	if m.active >= 0 && m.active < len(m.projects) {
+		return m.projects[m.active].ID
+	}
+	return ""
 }
 
 func (m model) loadResource(projectIndex, datasetIndex, childIndex int) tea.Cmd {
@@ -1149,7 +1167,7 @@ func (m model) View() string {
 	if m.searchOpen {
 		return m.searchView()
 	}
-	header := lipgloss.NewStyle().Foreground(ink).Bold(true).Render("BIGTUI") + "  " + lipgloss.NewStyle().Foreground(muted).Render("BigQuery workspace")
+	header := m.headerView()
 	tabStrip := m.tabView()
 	focusIndicator := lipgloss.NewStyle().Foreground(accent).Bold(true).Render("FOCUS: " + focusLabel(m.focus))
 	projectView := lipgloss.JoinVertical(lipgloss.Left, panelTitle("EXPLORER"), m.projectView())
@@ -1168,6 +1186,17 @@ func (m model) View() string {
 		view = m.overlayCompletion(view)
 	}
 	return view
+}
+
+func (m model) headerView() string {
+	title := lipgloss.NewStyle().Foreground(ink).Bold(true).Render("BIGTUI") + "  " + lipgloss.NewStyle().Foreground(muted).Render("BigQuery workspace")
+	billing := "BILLING: " + m.billingProjectID()
+	if m.billingProjectID() == "" {
+		billing = "BILLING: none"
+	}
+	billingView := lipgloss.NewStyle().Foreground(muted).Render(billing)
+	spacing := max(1, m.width-lipgloss.Width(title)-lipgloss.Width(billingView))
+	return title + strings.Repeat(" ", spacing) + billingView
 }
 
 func (m model) tabView() string {
@@ -1199,10 +1228,10 @@ func (m model) shortcutView() string {
 	tabControls := tabStyle.Render(tabText)
 	contextLabel := focusShortcutsLabel(m.focus)
 	if m.focus == focusProjects && m.width < 140 {
-		contextLabel = "EXPLORER  arrows  ·  Ctrl+E insert  ·  Ctrl+H hidden  ·  Enter"
+		contextLabel = "EXPLORER  arrows  ·  Ctrl+B billing  ·  Ctrl+E insert  ·  Ctrl+H hidden  ·  Enter"
 	}
 	if m.focus == focusProjects && m.width < 100 {
-		contextLabel = "EXPLORER  arrows  ·  Ctrl+E insert  ·  Ctrl+H"
+		contextLabel = "EXPLORER  arrows  ·  Ctrl+B billing  ·  Ctrl+E insert"
 	}
 	if m.focus == focusResults && m.width < 140 {
 		contextLabel = "RESULTS  Up/Down rows  ·  Left/Right cols"
@@ -1223,7 +1252,7 @@ func (m model) shortcutView() string {
 func focusShortcutsLabel(current focus) string {
 	switch current {
 	case focusProjects:
-		return "EXPLORER  Up/Down select  ·  Left/Right expand  ·  Ctrl+E query  ·  Ctrl+H hidden  ·  Enter info"
+		return "EXPLORER  Up/Down select  ·  Ctrl+B set billing project  ·  Left/Right expand  ·  Ctrl+E query  ·  Ctrl+H hidden  ·  Enter info"
 	case focusEditor:
 		return "QUERY EDITOR  Ctrl+R run  ·  auto-complete as you type  ·  Enter newline"
 	case focusResults:
@@ -1939,6 +1968,7 @@ func (m model) helpView() string {
 		panelTitle("EXPLORER"),
 		"up/down            select project, dataset, table, or view",
 		"left/right         collapse or expand",
+		"ctrl+b             set billing project",
 		"ctrl+e             insert SELECT query for selected resource",
 		"ctrl+h             show/hide hidden datasets",
 		"enter              inspect selected resource",

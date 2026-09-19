@@ -88,6 +88,43 @@ func TestCatalogLoadsDatasetsAndTablesOnExpansion(t *testing.T) {
 	}
 }
 
+func TestCtrlBSelectsBillingProjectAndQueriesUseIt(t *testing.T) {
+	queryProject := ""
+	client := clientFunc(func(_ context.Context, projectID, _ string) (bigquery.Result, error) {
+		queryProject = projectID
+		return bigquery.Result{}, nil
+	})
+	state := initialModelWithProjects(client, []project.Project{{ID: "billing-project"}, {ID: "explorer-project"}})
+	state.focus = focusProjects
+	state.active = 1
+	updated, command := state.Update(tea.KeyMsg{Type: tea.KeyCtrlB})
+	state = updated.(model)
+	if command != nil || state.billingProject != 1 {
+		t.Fatalf("Ctrl+B should select the active project for billing: billing=%d command=%v", state.billingProject, command != nil)
+	}
+	if state.billingProjectID() != "explorer-project" {
+		t.Fatalf("unexpected billing project: %q", state.billingProjectID())
+	}
+	queryCommand := state.runQuery(-1)
+	queryCommand()
+	if queryProject != "explorer-project" {
+		t.Fatalf("query used project %q, want %q", queryProject, "explorer-project")
+	}
+}
+
+func TestHeaderShowsBillingProjectAtRight(t *testing.T) {
+	state := initialModelWithProjects(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}), []project.Project{{ID: "billing-project"}})
+	state.width = 80
+	if !contains(state.headerView(), "BILLING: billing-project") {
+		t.Fatalf("header should show billing project: %q", state.headerView())
+	}
+	if lipgloss.Width(state.headerView()) != state.width {
+		t.Fatalf("header width = %d, want %d", lipgloss.Width(state.headerView()), state.width)
+	}
+}
+
 func TestAutocompleteLoadsDatasetsOnlyForResourceContext(t *testing.T) {
 	loader := &catalogLoaderStub{}
 	state := initialModelWithProjectsAndLoader(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
@@ -828,39 +865,18 @@ func TestHelpModalShowsCompleteKeymapAndClosesWithoutQuitting(t *testing.T) {
 		t.Fatal("? should open the help modal without a command")
 	}
 	view := state.helpView()
-	for _, text := range []string{"GENERAL", "EXPLORER"} {
-		if !contains(view, text) {
-			t.Fatalf("help modal is missing %q: %q", text, view)
+	for _, text := range []string{"GENERAL", "EXPLORER", "ctrl+e", "QUERY EDITOR", "COMPLETION", "RESULTS", "RUN HISTORY", "SEARCH", "RESOURCE INFO", "HELP", "Esc/?/q"} {
+		found := contains(view, text)
+		for scroll := 1; !found && scroll <= 100; scroll++ {
+			state.helpScroll = scroll
+			found = contains(state.helpView(), text)
+		}
+		if !found {
+			t.Fatalf("help modal is missing %q", text)
 		}
 	}
-	state.helpScroll = 10
+	state.helpScroll = 0
 	view = state.helpView()
-	for _, text := range []string{"ctrl+e", "QUERY EDITOR"} {
-		if !contains(view, text) {
-			t.Fatalf("scrolled help modal is missing %q: %q", text, view)
-		}
-	}
-	state.helpScroll = 20
-	view = state.helpView()
-	for _, text := range []string{"COMPLETION", "RESULTS"} {
-		if !contains(view, text) {
-			t.Fatalf("middle help modal is missing %q: %q", text, view)
-		}
-	}
-	state.helpScroll = 30
-	view = state.helpView()
-	for _, text := range []string{"RUN HISTORY", "SEARCH"} {
-		if !contains(view, text) {
-			t.Fatalf("lower help modal is missing %q: %q", text, view)
-		}
-	}
-	state.helpScroll = 100
-	view = state.helpView()
-	for _, text := range []string{"RESOURCE INFO", "HELP", "Esc/?/q"} {
-		if !contains(view, text) {
-			t.Fatalf("bottom help modal is missing %q: %q", text, view)
-		}
-	}
 	if lipgloss.Width(view) > state.width || lipgloss.Height(view) > state.height {
 		t.Fatalf("help modal exceeded terminal: %dx%d in %dx%d", lipgloss.Width(view), lipgloss.Height(view), state.width, state.height)
 	}
