@@ -265,6 +265,20 @@ func TestShortcutFocusDoesNotResizeWorkspace(t *testing.T) {
 	}
 }
 
+func TestWorkspaceFitsWhenTerminalNarrows(t *testing.T) {
+	state := initialModelWithMock(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}), true)
+	for _, width := range []int{120, 100, 80} {
+		updated, _ := state.Update(tea.WindowSizeMsg{Width: width, Height: 40})
+		state = updated.(model)
+		if got := lipgloss.Width(state.View()); got > width {
+			workspace := lipgloss.JoinHorizontal(lipgloss.Top, state.projectView(), "  ", state.editorView(), "  ", state.historyView())
+			t.Fatalf("workspace exceeds terminal width %d: rendered %d workspace=%d footer=%d editor=%d table=%d project=%d history=%d", width, got, lipgloss.Width(workspace), lipgloss.Width(state.shortcutView()), state.tabs[0].editor.Width(), state.tabs[0].results.Width(), state.projectPanelWidth(), state.historyPanelWidth())
+		}
+	}
+}
+
 func TestCtrlJRecordsQueryRun(t *testing.T) {
 	state := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
 		return bigquery.Result{}, nil

@@ -435,8 +435,9 @@ func (m *model) resizeTab(index int) {
 	if index < 0 || index >= len(m.tabs) {
 		return
 	}
-	m.tabs[index].editor.SetWidth(max(30, m.width-66))
-	m.tabs[index].results.SetWidth(max(30, m.width-66))
+	contentWidth := max(6, m.width-m.projectPanelWidth()-m.historyPanelWidth()-31)
+	m.tabs[index].editor.SetWidth(contentWidth)
+	m.tabs[index].results.SetWidth(contentWidth)
 	m.tabs[index].results.SetHeight(max(3, m.height-23))
 }
 
@@ -536,7 +537,14 @@ func (m model) shortcutView() string {
 	if m.focus == focusShortcuts {
 		contextStyle = contextStyle.Foreground(ink).Bold(true).BorderForeground(accent)
 	}
-	tabControls := tabStyle.Render("TABS  Ctrl+Left/Right switch  ·  Ctrl+N new  ·  Ctrl+W close  ·  Tab focus")
+	tabText := "TABS  Ctrl+Left/Right switch  ·  Ctrl+N new  ·  Ctrl+W close  ·  Tab focus"
+	if m.width < 140 {
+		tabText = "TABS  Ctrl+Left/Right  ·  Ctrl+N  ·  Ctrl+W"
+	}
+	if m.width < 100 {
+		tabText = "TABS  Ctrl+Left/Right"
+	}
+	tabControls := tabStyle.Render(tabText)
 	contextControls := contextStyle.Render(focusShortcutsLabel(m.focus))
 	return lipgloss.JoinHorizontal(lipgloss.Top, tabControls, " ", contextControls)
 }
@@ -576,7 +584,7 @@ func focusLabel(current focus) string {
 }
 
 func (m model) projectView() string {
-	boxStyle := m.panelBoxStyle(focusProjects).Padding(1).Width(24).Height(max(10, m.height-15))
+	boxStyle := m.panelBoxStyle(focusProjects).Padding(1).Width(m.projectPanelWidth()).Height(max(10, m.height-15))
 	if len(m.projects) == 0 {
 		content := lipgloss.JoinVertical(lipgloss.Left,
 			lipgloss.NewStyle().Foreground(muted).Render("No projects connected."),
@@ -681,9 +689,9 @@ func (m model) infoLines() []string {
 			details = []string{"Project  " + m.projects[m.active].ID, "Dataset  " + dataset.Name, "Type     " + child.Kind}
 			if len(child.ViewQuery) > 0 {
 				details = append(details, "", "Query")
-			for _, line := range wrapText(child.ViewQuery, max(20, m.width-10)) {
-				details = append(details, "  "+line)
-			}
+				for _, line := range wrapText(child.ViewQuery, max(20, m.width-10)) {
+					details = append(details, "  "+line)
+				}
 			}
 			if len(child.ExternalSource) > 0 {
 				details = append(details, "", "External source")
@@ -727,7 +735,9 @@ func formatPreview(columns []string, rows [][]string, width int) []string {
 }
 
 func wrapText(value string, width int) []string {
-	if width < 1 { return []string{value} }
+	if width < 1 {
+		return []string{value}
+	}
 	var lines []string
 	for _, sourceLine := range strings.Split(value, "\n") {
 		line := ""
@@ -810,8 +820,11 @@ func (m model) historyView() string {
 		lines = append(lines, lipgloss.NewStyle().Foreground(muted).Render("  No runs yet"))
 	}
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	return m.panelBoxStyle(focusHistory).Padding(1).Width(30).Height(max(10, m.height-15)).Render(content)
+	return m.panelBoxStyle(focusHistory).Padding(1).Width(m.historyPanelWidth()).Height(max(10, m.height-15)).Render(content)
 }
+
+func (m model) projectPanelWidth() int { return max(18, minInt(24, m.width/5)) }
+func (m model) historyPanelWidth() int { return max(22, minInt(30, m.width/4)) }
 
 func panelTitle(title string) string {
 	return lipgloss.NewStyle().Foreground(accent).Bold(true).Render(title)
