@@ -25,6 +25,14 @@ func isWorldCity(name string) bool {
 	return false
 }
 
+func TestWorldCitiesFitTabNameLimit(t *testing.T) {
+	for _, city := range worldCities {
+		if len(city) > 12 {
+			t.Fatalf("city %q exceeds the tab-safe name limit", city)
+		}
+	}
+}
+
 func (f clientFunc) Query(ctx context.Context, projectID, sql string) (bigquery.Result, error) {
 	return f(ctx, projectID, sql)
 }
@@ -1074,6 +1082,26 @@ func TestQueryTabsCanBeAddedSwitchedAndClosed(t *testing.T) {
 	state.closeTab()
 	if len(state.tabs) != 1 || state.activeTab != 0 {
 		t.Fatalf("tab was not closed correctly: active=%d tabs=%#v", state.activeTab, state.tabs)
+	}
+}
+
+func TestTabLabelsCompressEquallyWhenTheyExceedWidth(t *testing.T) {
+	state := initialModel(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}))
+	state.width = 40
+	state.tabs = []queryTab{
+		{title: "Auckland"},
+		{title: "Buenos Aires"},
+		{title: "Johannesburg"},
+		{title: "San Francisco"},
+	}
+	view := state.tabView()
+	if lipgloss.Width(view) > state.width {
+		t.Fatalf("compressed tabs exceeded terminal width: %d > %d (%q)", lipgloss.Width(view), state.width, view)
+	}
+	if lipgloss.Width(view) != state.width {
+		t.Fatalf("compressed tabs did not use the available width: %d != %d", lipgloss.Width(view), state.width)
 	}
 }
 

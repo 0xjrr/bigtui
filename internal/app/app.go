@@ -1200,12 +1200,27 @@ func (m model) headerView() string {
 }
 
 func (m model) tabView() string {
-	items := make([]string, 0, len(m.tabs))
+	labels := make([]string, len(m.tabs))
+	naturalWidth := 0
 	for index, tab := range m.tabs {
-		label := fmt.Sprintf("%d %s  ×", index+1, tab.title)
+		labels[index] = fmt.Sprintf("%d %s", index+1, tab.title)
+		naturalWidth += lipgloss.Width(labels[index]) + 2
+	}
+	compressed := naturalWidth > m.width && m.width > 0
+	items := make([]string, 0, len(m.tabs))
+	for index, label := range labels {
 		style := lipgloss.NewStyle().Foreground(muted).Padding(0, 1)
 		if index == m.activeTab {
 			style = style.Foreground(ink).Bold(true).Background(panel).Underline(true)
+		}
+		if compressed {
+			width := max(1, m.width/len(labels))
+			if index < m.width%len(labels) {
+				width++
+			}
+			contentWidth := max(1, width-2)
+			label = ansi.Truncate(label, contentWidth, "")
+			style = style.Width(width).MaxHeight(1)
 		}
 		items = append(items, style.Render(label))
 	}
