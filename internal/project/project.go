@@ -78,7 +78,7 @@ type ResourceLoader interface {
 type CatalogLoader interface {
 	ResourceLoader
 	Load(context.Context) ([]Project, error)
-	LoadDatasets(context.Context, string) ([]Resource, error)
+	LoadDatasets(context.Context, string, bool) ([]Resource, error)
 	LoadTables(context.Context, string, string) ([]Resource, error)
 }
 
@@ -132,8 +132,8 @@ func (l *Loader) Load(ctx context.Context) ([]Project, error) {
 	return projects, nil
 }
 
-func (l *Loader) LoadDatasets(ctx context.Context, projectID string) ([]Resource, error) {
-	datasets, err := l.listDatasets(ctx, projectID)
+func (l *Loader) LoadDatasets(ctx context.Context, projectID string, includeHidden bool) ([]Resource, error) {
+	datasets, err := l.listDatasets(ctx, projectID, includeHidden)
 	if err != nil {
 		return nil, err
 	}
@@ -156,11 +156,11 @@ func (l *Loader) LoadTables(ctx context.Context, projectID, datasetID string) ([
 	return resources, nil
 }
 
-func (l *Loader) listDatasets(ctx context.Context, projectID string) ([]*cloudbigqueryapi.DatasetListDatasets, error) {
+func (l *Loader) listDatasets(ctx context.Context, projectID string, includeHidden bool) ([]*cloudbigqueryapi.DatasetListDatasets, error) {
 	datasets := []*cloudbigqueryapi.DatasetListDatasets{}
 	pageToken := ""
 	for {
-		call := l.service.Datasets.List(projectID).All(true).MaxResults(listPageSize).Context(ctx)
+		call := l.service.Datasets.List(projectID).All(includeHidden).MaxResults(listPageSize).Context(ctx)
 		if pageToken != "" {
 			call.PageToken(pageToken)
 		}

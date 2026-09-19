@@ -20,16 +20,18 @@ func (f clientFunc) Query(ctx context.Context, projectID, sql string) (bigquery.
 }
 
 type catalogLoaderStub struct {
-	datasetCalls int
-	tableCalls   int
+	datasetCalls      int
+	lastIncludeHidden bool
+	tableCalls        int
 }
 
 func (s *catalogLoaderStub) Load(context.Context) ([]project.Project, error) {
 	return []project.Project{{ID: "project-1", Name: "Project 1"}}, nil
 }
 
-func (s *catalogLoaderStub) LoadDatasets(context.Context, string) ([]project.Resource, error) {
+func (s *catalogLoaderStub) LoadDatasets(_ context.Context, _ string, includeHidden bool) ([]project.Resource, error) {
 	s.datasetCalls++
+	s.lastIncludeHidden = includeHidden
 	return []project.Resource{{Name: "dataset-1", Kind: "dataset"}}, nil
 }
 
@@ -68,6 +70,9 @@ func TestCatalogLoadsDatasetsAndTablesOnExpansion(t *testing.T) {
 	if loader.datasetCalls != 1 || loader.tableCalls != 0 || len(state.projects[0].Resources) != 1 {
 		t.Fatalf("unexpected dataset loading state: datasets=%d tables=%d resources=%#v", loader.datasetCalls, loader.tableCalls, state.projects[0].Resources)
 	}
+	if loader.lastIncludeHidden {
+		t.Fatal("hidden datasets should be excluded by default")
+	}
 	updatedModel, command = state.Update(tea.KeyMsg{Type: tea.KeyDown})
 	state = updatedModel.(model)
 	updatedModel, command = state.Update(tea.KeyMsg{Type: tea.KeyRight})
@@ -79,6 +84,25 @@ func TestCatalogLoadsDatasetsAndTablesOnExpansion(t *testing.T) {
 	state = updatedModel.(model)
 	if loader.tableCalls != 1 || len(state.projects[0].Resources[0].Children) != 1 {
 		t.Fatalf("unexpected table loading state: calls=%d children=%#v", loader.tableCalls, state.projects[0].Resources[0].Children)
+	}
+}
+
+func TestCtrlHTogglesHiddenDatasets(t *testing.T) {
+	loader := &catalogLoaderStub{}
+	state := initialModelWithProjectsAndLoader(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}), []project.Project{{ID: "project-1"}}, loader)
+	state.focus = focusProjects
+	state.expanded[0] = true
+	updated, command := state.Update(tea.KeyMsg{Type: tea.KeyCtrlH})
+	state = updated.(model)
+	if !state.showHiddenDatasets || command == nil {
+		t.Fatal("Ctrl+H should enable hidden datasets and reload expanded projects")
+	}
+	updated, _ = state.Update(command())
+	state = updated.(model)
+	if !loader.lastIncludeHidden {
+		t.Fatal("enabled hidden-dataset mode should request hidden datasets")
 	}
 }
 

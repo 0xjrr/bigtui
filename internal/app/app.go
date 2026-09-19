@@ -42,9 +42,10 @@ type projectsLoaded struct {
 }
 
 type datasetsLoaded struct {
-	projectIndex int
-	resources    []project.Resource
-	err          error
+	projectIndex  int
+	includeHidden bool
+	resources     []project.Resource
+	err           error
 }
 
 type tablesLoaded struct {
@@ -98,34 +99,35 @@ type projectRow struct {
 }
 
 type model struct {
-	client          bigquery.Client
-	loader          project.CatalogLoader
-	projects        []project.Project
-	active          int
-	focus           focus
-	tabs            []queryTab
-	activeTab       int
-	status          string
-	validation      string
-	width           int
-	height          int
-	showHelp        bool
-	expanded        []bool
-	selectedDataset int
-	selectedChild   int
-	expandedDataset map[string]bool
-	showInfo        bool
-	infoScroll      int
-	searchOpen      bool
-	searchInput     textinput.Model
-	searchResults   []searchResult
-	searchCursor    int
-	resourceLoading bool
-	projectLoading  map[int]bool
-	datasetLoading  map[string]bool
-	datasetsLoaded  map[int]bool
-	tablesLoaded    map[string]bool
-	projectScroll   int
+	client             bigquery.Client
+	loader             project.CatalogLoader
+	projects           []project.Project
+	active             int
+	focus              focus
+	tabs               []queryTab
+	activeTab          int
+	status             string
+	validation         string
+	width              int
+	height             int
+	showHelp           bool
+	expanded           []bool
+	selectedDataset    int
+	selectedChild      int
+	expandedDataset    map[string]bool
+	showInfo           bool
+	infoScroll         int
+	searchOpen         bool
+	searchInput        textinput.Model
+	searchResults      []searchResult
+	searchCursor       int
+	resourceLoading    bool
+	projectLoading     map[int]bool
+	datasetLoading     map[string]bool
+	datasetsLoaded     map[int]bool
+	tablesLoaded       map[string]bool
+	projectScroll      int
+	showHiddenDatasets bool
 }
 
 var (
@@ -263,6 +265,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateProjectScroll()
 		m.status = fmt.Sprintf("Ready. Loaded %d projects.", len(msg.projects))
 	case datasetsLoaded:
+		if msg.includeHidden != m.showHiddenDatasets {
+			return m, nil
+		}
 		m.projectLoading[msg.projectIndex] = false
 		if msg.err != nil {
 			m.status = "Dataset loading failed: " + msg.err.Error()
@@ -367,6 +372,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.searchInput.Focus()
 			m.refreshSearch()
 			return m, nil
+		case "ctrl+h":
+			if m.focus == focusProjects {
+				return m, m.toggleHiddenDatasets()
+			}
 		case "ctrl+n":
 			m.addTab()
 			return m, nil
@@ -793,10 +802,43 @@ func (m model) loadProjects() tea.Cmd {
 func (m model) loadDatasets(projectIndex int) tea.Cmd {
 	loader := m.loader
 	projectID := m.projects[projectIndex].ID
+	includeHidden := m.showHiddenDatasets
 	return func() tea.Msg {
-		resources, err := loader.LoadDatasets(context.Background(), projectID)
-		return datasetsLoaded{projectIndex: projectIndex, resources: resources, err: err}
+		resources, err := loader.LoadDatasets(context.Background(), projectID, includeHidden)
+		return datasetsLoaded{projectIndex: projectIndex, includeHidden: includeHidden, resources: resources, err: err}
 	}
+}
+
+func (m *model) toggleHiddenDatasets() tea.Cmd {
+	if m.loader == nil {
+		m.status = "Hidden dataset filtering is unavailable in mock mode."
+		return nil
+	}
+	m.showHiddenDatasets = !m.showHiddenDatasets
+	m.datasetsLoaded = map[int]bool{}
+	m.datasetLoading = map[string]bool{}
+	m.tablesLoaded = map[string]bool{}
+	m.expandedDataset = map[string]bool{}
+	m.selectedDataset = -1
+	m.selectedChild = -1
+	commands := []tea.Cmd{}
+	for index := range m.projects {
+		m.projects[index].Resources = nil
+		if index < len(m.expanded) && m.expanded[index] && m.loader != nil {
+			m.projectLoading[index] = true
+			commands = append(commands, m.loadDatasets(index))
+		}
+	}
+	m.updateProjectScroll()
+	if m.showHiddenDatasets {
+		m.status = "Loading hidden datasets..."
+	} else {
+		m.status = "Hiding hidden datasets..."
+	}
+	if len(commands) == 0 {
+		return nil
+	}
+	return tea.Batch(commands...)
 }
 
 func (m model) loadTables(projectIndex, datasetIndex int) tea.Cmd {
@@ -915,10 +957,10 @@ func (m model) shortcutView() string {
 	tabControls := tabStyle.Render(tabText)
 	contextLabel := focusShortcutsLabel(m.focus)
 	if m.focus == focusProjects && m.width < 140 {
-		contextLabel = "PROJECTS  Up/Down  ·  Left/Right  ·  Enter"
+		contextLabel = "PROJECTS  arrows  ·  Ctrl+H hidden  ·  Enter"
 	}
 	if m.focus == focusProjects && m.width < 100 {
-		contextLabel = "PROJECTS  arrows  ·  Enter"
+		contextLabel = "PROJECTS  arrows  ·  Ctrl+H"
 	}
 	if m.focus == focusResults && m.width < 140 {
 		contextLabel = "RESULTS  Up/Down rows  ·  Left/Right cols"
@@ -933,7 +975,7 @@ func (m model) shortcutView() string {
 func focusShortcutsLabel(current focus) string {
 	switch current {
 	case focusProjects:
-		return "PROJECTS  Up/Down select  ·  Left/Right expand  ·  Enter info"
+		return "PROJECTS  Up/Down select  ·  Left/Right expand  ·  Ctrl+H hidden  ·  Enter info"
 	case focusEditor:
 		return "QUERY EDITOR  Ctrl+R run  ·  Enter newline"
 	case focusResults:
@@ -1536,7 +1578,7 @@ func formatValidationError(err error) string {
 }
 
 func (m model) helpView() string {
-	lines := []string{"KEYMAP", "", "ctrl+s             search all resources", "tab / shift+tab   move focus", "ctrl+left/right   switch query tab", "ctrl+n             new query tab", "ctrl+w             close query tab", "up/down            select project or resource", "left/right         expand or collapse", "enter              inspect resource / newline", "ctrl+r             run query", "ctrl+enter         run when supported", "?                  close help", "q                  quit outside editor", "ctrl+c             quit"}
+	lines := []string{"KEYMAP", "", "ctrl+s             search all resources", "ctrl+h             show/hide hidden datasets", "tab / shift+tab   move focus", "ctrl+left/right   switch query tab", "ctrl+n             new query tab", "ctrl+w             close query tab", "up/down            select project or resource", "left/right         expand or collapse", "enter              inspect resource / newline", "ctrl+r             run query", "ctrl+enter         run when supported", "?                  close help", "q                  quit outside editor", "ctrl+c             quit"}
 	return lipgloss.NewStyle().Width(50).Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(2).Render(strings.Join(lines, "\n"))
 }
 
