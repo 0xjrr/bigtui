@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/xjrr/bigtui/internal/bigquery"
 	"github.com/xjrr/bigtui/internal/project"
 )
@@ -1119,10 +1120,14 @@ func (m model) panelBoxStyle(panelFocus focus) lipgloss.Style {
 }
 
 func (m model) infoView() string {
-	lines := m.infoLines()
-	modalWidth := max(40, m.width-4)
-	modalHeight := max(12, m.height-4)
-	viewport := max(1, modalHeight-6)
+	outerWidth := max(40, m.width-4)
+	outerHeight := max(12, m.height-4)
+	styleWidth := max(1, outerWidth-2)
+	styleHeight := max(1, outerHeight-2)
+	contentWidth := max(20, styleWidth-6)
+	contentHeight := max(1, styleHeight-6)
+	lines := wrapInfoLines(m.infoLines(), contentWidth)
+	viewport := max(1, contentHeight-1)
 	maxScroll := max(0, len(lines)-viewport)
 	scroll := m.infoScroll
 	if scroll > maxScroll {
@@ -1132,9 +1137,22 @@ func (m model) infoView() string {
 		scroll = 0
 	}
 	end := minInt(len(lines), scroll+viewport)
-	visible := lines[scroll:end]
+	visible := append([]string{}, lines[scroll:end]...)
 	visible = append(visible, "", lipgloss.NewStyle().Foreground(ink).Render("Up/Down scroll  ·  Enter/Esc close"))
-	return lipgloss.NewStyle().Width(modalWidth).Height(modalHeight).Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(2).Render(lipgloss.JoinVertical(lipgloss.Left, visible...))
+	return lipgloss.NewStyle().Width(styleWidth).Height(styleHeight).Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(2).Render(lipgloss.JoinVertical(lipgloss.Left, visible...))
+}
+
+func wrapInfoLines(lines []string, width int) []string {
+	wrapped := []string{}
+	for _, line := range lines {
+		value := ansi.Wrap(line, width, "")
+		if value == "" {
+			wrapped = append(wrapped, "")
+			continue
+		}
+		wrapped = append(wrapped, strings.Split(value, "\n")...)
+	}
+	return wrapped
 }
 
 func (m model) infoLines() []string {

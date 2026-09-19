@@ -228,6 +228,29 @@ func TestPreviewIsStructuredAndModalFillsTerminal(t *testing.T) {
 	}
 }
 
+func TestInfoModalUsesFixedViewportForLargeContent(t *testing.T) {
+	state := initialModelWithMock(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
+		return bigquery.Result{}, nil
+	}), true)
+	state.width, state.height = 80, 20
+	state.selectedDataset = 0
+	state.selectedChild = 0
+	state.showInfo = true
+	state.projects[0].Resources[0].Children[0].Columns = []string{"id", "description"}
+	for index := 0; index < 40; index++ {
+		state.projects[0].Resources[0].Children[0].Preview = append(state.projects[0].Resources[0].Children[0].Preview, []string{fmt.Sprint(index), strings.Repeat("large-value ", 8)})
+	}
+	view := state.infoView()
+	if lipgloss.Width(view) > state.width || lipgloss.Height(view) > state.height {
+		t.Fatalf("info modal exceeded terminal: %dx%d in %dx%d", lipgloss.Width(view), lipgloss.Height(view), state.width, state.height)
+	}
+	state.infoScroll = 100
+	scrolled := state.infoView()
+	if lipgloss.Width(scrolled) > state.width || lipgloss.Height(scrolled) > state.height {
+		t.Fatalf("scrolled info modal exceeded terminal: %dx%d in %dx%d", lipgloss.Width(scrolled), lipgloss.Height(scrolled), state.width, state.height)
+	}
+}
+
 func TestViewQueryRemainsOneStyledBlock(t *testing.T) {
 	state := initialModelWithMock(clientFunc(func(context.Context, string, string) (bigquery.Result, error) {
 		return bigquery.Result{}, nil
