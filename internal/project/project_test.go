@@ -1,6 +1,31 @@
 package project
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+func TestMockProjectsExposeResourceDetails(t *testing.T) {
+	dataset := MockProjects()[0].Resources[0]
+	byKind := map[string]Resource{}
+	for _, child := range dataset.Children {
+		byKind[child.Kind] = child
+	}
+	if len(byKind["table"].Preview) == 0 || len(byKind["table"].Columns) == 0 {
+		t.Fatalf("mock tables should carry a preview: %#v", byKind["table"])
+	}
+	if !strings.Contains(byKind["view"].ViewQuery, "SELECT") {
+		t.Fatalf("mock views should carry their query: %#v", byKind["view"])
+	}
+	if len(byKind["external"].ExternalSource) == 0 {
+		t.Fatalf("mock external tables should carry their source: %#v", byKind["external"])
+	}
+	for _, child := range dataset.Children {
+		if !child.DetailsLoaded {
+			t.Fatalf("mock children should be fully loaded: %#v", child)
+		}
+	}
+}
 
 func TestMockProjectsContainDatasets(t *testing.T) {
 	projects := MockProjects()

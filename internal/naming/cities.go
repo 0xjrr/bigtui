@@ -1,11 +1,11 @@
-package app
+package naming
 
 import (
 	"math/rand"
 	"time"
 )
 
-var worldCities = []string{
+var Cities = []string{
 	"Abu Dhabi", "Accra", "Addis Ababa", "Ahmedabad", "Algiers", "Amman", "Amsterdam", "Anchorage", "Ankara", "Antananarivo",
 	"Athens", "Atlanta", "Auckland", "Baku", "Bamako", "Bandung", "Bangkok", "Barcelona", "Beijing",
 	"Beirut", "Belgrade", "Bengaluru", "Berlin", "Bogota", "Boston", "Bratislava", "Brisbane", "Brussels", "Bucharest",
@@ -34,8 +34,8 @@ var worldCities = []string{
 	"Valletta", "Verona", "Victoria", "Wuhan", "Xiamen", "Yokohama", "Zurich",
 }
 
-var cityRandom = rand.New(rand.NewSource(time.Now().UnixNano()))
+var source = rand.New(rand.NewSource(time.Now().UnixNano()))
 
-func randomCity() string {
-	return worldCities[cityRandom.Intn(len(worldCities))]
+func RandomCity() string {
+	return Cities[source.Intn(len(Cities))]
 }

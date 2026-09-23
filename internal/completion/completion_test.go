@@ -2,6 +2,7 @@ package completion
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -216,5 +217,74 @@ func TestMergeRemovesDuplicatesKeepingFirstOccurrence(t *testing.T) {
 	}
 	if merged[0].Detail != "table" {
 		t.Fatalf("expected first occurrence to win: %#v", merged)
+	}
+}
+
+func TestMergeWithoutSetsIsEmpty(t *testing.T) {
+	if merged := Merge(); len(merged) != 0 {
+		t.Fatalf("expected an empty merge: %#v", merged)
+	}
+}
+
+func TestChainSkipsFailingProvidersAndReportsNoResults(t *testing.T) {
+	chain := Chain{Providers: []Provider{
+		providerFunc(func(context.Context, Request) ([]Item, error) { return nil, errors.New("unavailable") }),
+		providerFunc(func(context.Context, Request) ([]Item, error) { return nil, nil }),
+	}}
+	items, err := chain.Complete(context.Background(), Request{})
+	if err != nil || len(items) != 0 {
+		t.Fatalf("expected no completions: %#v, %v", items, err)
+	}
+}
+
+func TestWordPrefixClampsTheCursor(t *testing.T) {
+	if got := WordPrefix("orders", 99); got != "orders" {
+		t.Fatalf("cursor past the end = %q, want %q", got, "orders")
+	}
+	if got := WordPrefix("orders", -5); got != "" {
+		t.Fatalf("negative cursor = %q, want empty", got)
+	}
+}
+
+func TestReferencePartsWithoutATokenIsEmpty(t *testing.T) {
+	if parts := ReferenceParts("SELECT * FROM ", 14); parts != nil {
+		t.Fatalf("expected no reference parts: %#v", parts)
+	}
+}
+
+func TestReferenceIsQuotedAtTheStartOfTheQuery(t *testing.T) {
+	if ReferenceIsQuoted("", 0) {
+		t.Fatal("an empty query has no quoted reference")
+	}
+	if !ReferenceIsQuoted("`orders", 7) {
+		t.Fatal("a leading backtick marks a quoted reference")
+	}
+}
+
+func TestProvidersReturnNothingWithoutAPrefix(t *testing.T) {
+	request := Request{Project: "demo-project", SQL: "SELECT * FROM ", Cursor: 14}
+	catalog := CatalogProvider{Catalog: []project.Project{{ID: "demo-project", Resources: []project.Resource{{Name: "customers", Kind: "dataset"}}}}}
+	for name, provider := range map[string]Provider{"catalog": catalog, "keyword": KeywordProvider{}, "function": FunctionProvider{}} {
+		items, err := provider.Complete(context.Background(), request)
+		if err != nil || len(items) != 0 {
+			t.Fatalf("%s provider returned suggestions without a prefix: %#v, %v", name, items, err)
+		}
+	}
+}
+
+func TestCatalogProviderSortsSuggestionsAlphabetically(t *testing.T) {
+	provider := CatalogProvider{Catalog: []project.Project{{
+		ID: "demo-project",
+		Resources: []project.Resource{{Name: "customers", Kind: "dataset", Children: []project.Resource{
+			{Name: "customer_zones", Kind: "table"},
+			{Name: "customer_addresses", Kind: "table"},
+		}}},
+	}}}
+	items, err := provider.Complete(context.Background(), Request{Project: "demo-project", SQL: "FROM demo-project.customers.customer", Cursor: len("FROM demo-project.customers.customer")})
+	if err != nil || len(items) != 2 {
+		t.Fatalf("unexpected suggestions: %#v, %v", items, err)
+	}
+	if items[0].Label != "customer_addresses" || items[1].Label != "customer_zones" {
+		t.Fatalf("suggestions are not sorted: %#v", items)
 	}
 }

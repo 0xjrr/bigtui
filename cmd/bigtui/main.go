@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/xjrr/bigtui/internal/app"
 	"github.com/xjrr/bigtui/internal/auth"
 	"github.com/xjrr/bigtui/internal/bigquery"
@@ -16,39 +17,35 @@ func main() {
 	mock := flag.Bool("mock", false, "load local fixture projects, datasets, tables, and views")
 	flag.Parse()
 
-	ctx := context.Background()
-	if err := auth.EnsureApplicationDefaultCredentials(ctx); err != nil {
+	if err := run(context.Background(), *mock); err != nil {
 		fmt.Fprintf(os.Stderr, "bigtui: %v\n", err)
 		os.Exit(1)
+	}
+}
+
+func run(ctx context.Context, mock bool) error {
+	if err := auth.EnsureApplicationDefaultCredentials(ctx); err != nil {
+		return err
 	}
 	client, err := bigquery.NewClient(ctx)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "bigtui: %v\n", err)
-		os.Exit(1)
+		return err
 	}
+	program, err := newProgram(ctx, client, mock)
+	if err != nil {
+		return err
+	}
+	_, err = program.Run()
+	return err
+}
 
-	projects := project.MockProjects()
-	var loader project.CatalogLoader
-	if !*mock {
-		catalogLoader, loadErr := project.NewLoader(ctx)
-		if loadErr != nil {
-			fmt.Fprintf(os.Stderr, "bigtui: %v\n", loadErr)
-			os.Exit(1)
-		}
-		loader = catalogLoader
-		projects = nil
+func newProgram(ctx context.Context, client bigquery.Client, mock bool) (*tea.Program, error) {
+	if mock {
+		return app.NewWithProjects(client, project.MockProjects()), nil
 	}
-	if *mock {
-		program := app.NewWithProjects(client, projects)
-		if _, err := program.Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "bigtui: %v\n", err)
-			os.Exit(1)
-		}
-		return
+	loader, err := project.NewLoader(ctx)
+	if err != nil {
+		return nil, err
 	}
-	program := app.NewWithLoader(client, loader)
-	if _, err := program.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "bigtui: %v\n", err)
-		os.Exit(1)
-	}
+	return app.NewWithLoader(client, loader), nil
 }

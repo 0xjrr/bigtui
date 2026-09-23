@@ -14,19 +14,22 @@ import (
 func main() {
 	projectID := flag.String("project", "", "Google Cloud project ID to seed")
 	flag.Parse()
-	if strings.TrimSpace(*projectID) == "" {
+	target := strings.TrimSpace(*projectID)
+	if target == "" {
 		flag.Usage()
 		os.Exit(2)
 	}
 
-	ctx := context.Background()
+	if err := run(context.Background(), target); err != nil {
+		fmt.Fprintf(os.Stderr, "bigtui-seed: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Seeded %s in project %s\n", seed.DatasetID, target)
+}
+
+func run(ctx context.Context, projectID string) error {
 	if err := auth.EnsureApplicationDefaultCredentials(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "bigtui-seed: %v\n", err)
-		os.Exit(1)
+		return err
 	}
-	if err := seed.Run(ctx, strings.TrimSpace(*projectID)); err != nil {
-		fmt.Fprintf(os.Stderr, "bigtui-seed: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Printf("Seeded %s in project %s\n", seed.DatasetID, strings.TrimSpace(*projectID))
+	return seed.Run(ctx, projectID)
 }
