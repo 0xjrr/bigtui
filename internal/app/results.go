@@ -6,10 +6,10 @@ import (
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/xjrr/bigtui/internal/bigquery"
-	"github.com/xjrr/bigtui/internal/ui/grid"
-	"github.com/xjrr/bigtui/internal/ui/text"
-	"github.com/xjrr/bigtui/internal/ui/theme"
+	"github.com/0xjrr/bigtui/internal/bigquery"
+	"github.com/0xjrr/bigtui/internal/ui/grid"
+	"github.com/0xjrr/bigtui/internal/ui/text"
+	"github.com/0xjrr/bigtui/internal/ui/theme"
 )
 
 const (

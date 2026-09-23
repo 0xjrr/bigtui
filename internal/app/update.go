@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/xjrr/bigtui/internal/format"
-	"github.com/xjrr/bigtui/internal/ui/text"
+	"github.com/0xjrr/bigtui/internal/format"
+	"github.com/0xjrr/bigtui/internal/ui/text"
 )
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {

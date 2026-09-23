@@ -5,7 +5,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textarea"
-	"github.com/xjrr/bigtui/internal/naming"
+	"github.com/0xjrr/bigtui/internal/naming"
 )
 
 func newQueryTab(title, sql string) queryTab {

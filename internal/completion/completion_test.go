@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/xjrr/bigtui/internal/project"
+	"github.com/0xjrr/bigtui/internal/project"
 )
 
 type providerFunc func(context.Context, Request) ([]Item, error)

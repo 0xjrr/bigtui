@@ -6,11 +6,11 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/xjrr/bigtui/internal/format"
-	"github.com/xjrr/bigtui/internal/project"
-	"github.com/xjrr/bigtui/internal/ui/grid"
-	"github.com/xjrr/bigtui/internal/ui/text"
-	"github.com/xjrr/bigtui/internal/ui/theme"
+	"github.com/0xjrr/bigtui/internal/format"
+	"github.com/0xjrr/bigtui/internal/project"
+	"github.com/0xjrr/bigtui/internal/ui/grid"
+	"github.com/0xjrr/bigtui/internal/ui/text"
+	"github.com/0xjrr/bigtui/internal/ui/theme"
 )
 
 func (m model) infoView() string {

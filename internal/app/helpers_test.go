@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/xjrr/bigtui/internal/bigquery"
-	"github.com/xjrr/bigtui/internal/project"
+	"github.com/0xjrr/bigtui/internal/bigquery"
+	"github.com/0xjrr/bigtui/internal/project"
 )
 
 type clientFunc func(context.Context, string, string) (bigquery.Result, error)

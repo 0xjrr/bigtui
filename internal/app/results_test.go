@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/xjrr/bigtui/internal/bigquery"
+	"github.com/0xjrr/bigtui/internal/bigquery"
 )
 
 func TestResultsKeepHeadersAndRowNumbersWhileNavigating(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/xjrr/bigtui/internal/ui/text"
+	"github.com/0xjrr/bigtui/internal/ui/text"
 )
 
 const previewColumnWidth = 18

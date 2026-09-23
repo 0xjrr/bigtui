@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/xjrr/bigtui/internal/project"
+	"github.com/0xjrr/bigtui/internal/project"
 )
 
 func TestCatalogLoadsDatasetsAndTablesOnExpansion(t *testing.T) {

@@ -1,4 +1,4 @@
-module github.com/xjrr/bigtui
+module github.com/0xjrr/bigtui
 
 go 1.21
 

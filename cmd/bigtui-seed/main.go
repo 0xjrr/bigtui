@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/xjrr/bigtui/internal/auth"
-	"github.com/xjrr/bigtui/internal/seed"
+	"github.com/0xjrr/bigtui/internal/auth"
+	"github.com/0xjrr/bigtui/internal/seed"
 )
 
 func main() {

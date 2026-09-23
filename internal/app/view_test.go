@@ -6,9 +6,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/xjrr/bigtui/internal/bigquery"
-	"github.com/xjrr/bigtui/internal/completion"
-	"github.com/xjrr/bigtui/internal/project"
+	"github.com/0xjrr/bigtui/internal/bigquery"
+	"github.com/0xjrr/bigtui/internal/completion"
+	"github.com/0xjrr/bigtui/internal/project"
 )
 
 func TestViewWaitsForTheFirstWindowSize(t *testing.T) {

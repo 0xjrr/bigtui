@@ -6,8 +6,8 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/xjrr/bigtui/internal/ui/text"
-	"github.com/xjrr/bigtui/internal/ui/theme"
+	"github.com/0xjrr/bigtui/internal/ui/text"
+	"github.com/0xjrr/bigtui/internal/ui/theme"
 )
 
 func (m model) View() string {

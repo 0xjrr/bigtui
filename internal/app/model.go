@@ -8,10 +8,10 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/xjrr/bigtui/internal/bigquery"
-	"github.com/xjrr/bigtui/internal/completion"
-	"github.com/xjrr/bigtui/internal/naming"
-	"github.com/xjrr/bigtui/internal/project"
+	"github.com/0xjrr/bigtui/internal/bigquery"
+	"github.com/0xjrr/bigtui/internal/completion"
+	"github.com/0xjrr/bigtui/internal/naming"
+	"github.com/0xjrr/bigtui/internal/project"
 )
 
 type focus int

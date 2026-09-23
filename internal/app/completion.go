@@ -8,9 +8,9 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/xjrr/bigtui/internal/completion"
-	"github.com/xjrr/bigtui/internal/ui/text"
-	"github.com/xjrr/bigtui/internal/ui/theme"
+	"github.com/0xjrr/bigtui/internal/completion"
+	"github.com/0xjrr/bigtui/internal/ui/text"
+	"github.com/0xjrr/bigtui/internal/ui/theme"
 )
 
 const (

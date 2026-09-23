@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/xjrr/bigtui/internal/naming"
+	"github.com/0xjrr/bigtui/internal/naming"
 )
 
 func TestQueryTabsCanBeAddedSwitchedAndClosed(t *testing.T) {
