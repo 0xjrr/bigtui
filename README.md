@@ -50,7 +50,7 @@ For repository-based updates, add the bigtui RPM repository:
 sudo tee /etc/yum.repos.d/bigtui.repo >/dev/null <<'EOF'
 [bigtui]
 name=bigtui
-baseurl=https://0xjrr.github.io/bigtui/rpm
+baseurl=https://ricardoribeiro.dev/bigtui/rpm
 enabled=1
 gpgcheck=0
 EOF
@@ -60,9 +60,9 @@ sudo dnf install bigtui
 ### APT repository
 
 ```sh
-curl -fsSL https://0xjrr.github.io/bigtui/apt/bigtui-archive-keyring.asc \
+curl -fsSL https://ricardoribeiro.dev/bigtui/apt/bigtui-archive-keyring.asc \
 	| sudo tee /etc/apt/keyrings/bigtui.asc >/dev/null
-echo "deb [signed-by=/etc/apt/keyrings/bigtui.asc] https://0xjrr.github.io/bigtui/apt stable main" \
+echo "deb [signed-by=/etc/apt/keyrings/bigtui.asc] https://ricardoribeiro.dev/bigtui/apt stable main" \
 	| sudo tee /etc/apt/sources.list.d/bigtui.list >/dev/null
 sudo apt update
 sudo apt install bigtui
