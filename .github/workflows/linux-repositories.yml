@@ -1,0 +1,66 @@
+name: publish Linux repositories
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Install repository tools
+        run: sudo apt-get update && sudo apt-get install --yes createrepo-c reprepro
+
+      - name: Build APT and RPM repositories
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          tag='${{ github.event.release.tag_name }}'
+          mkdir -p debs rpms site/apt site/rpm
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern '*.deb' --dir debs
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern '*.rpm' --dir rpms
+
+          gpg --batch --import <(printf '%s\n' "$APT_GPG_PRIVATE_KEY")
+          key_id="$(gpg --list-secret-keys --with-colons | awk -F: '$1 == "sec" { print $5; exit }')"
+          test -n "$key_id"
+          mkdir -p site/apt/conf
+          cat > site/apt/conf/distributions <<EOF
+          Origin: bigtui
+          Label: bigtui
+          Codename: stable
+          Architectures: amd64 arm64
+          Components: main
+          SignWith: $key_id
+          EOF
+          reprepro -b site/apt includedeb stable debs/*.deb
+          gpg --armor --export "$key_id" > site/apt/bigtui-archive-keyring.asc
+
+          cp rpms/*.rpm site/rpm/
+          createrepo_c site/rpm
+
+      - name: Upload repository site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy repository site
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -11,6 +11,7 @@ builds:
     goos:
       - linux
       - darwin
+      - windows
     goarch:
       - amd64
       - arm64
@@ -22,6 +23,10 @@ archives:
     formats:
       - tar.gz
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
     files:
       - LICENSE
       - NOTICE
@@ -63,6 +68,17 @@ homebrew_casks:
       owner: 0xjrr
       name: homebrew-bigtui
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: https://github.com/0xjrr/bigtui
+    description: Keyboard-first terminal workspace for querying BigQuery
+    license: Apache-2.0
+
+scoops:
+  - ids:
+      - binaries
+    repository:
+      owner: 0xjrr
+      name: scoop-bigtui
+      token: "{{ .Env.SCOOP_BUCKET_TOKEN }}"
     homepage: https://github.com/0xjrr/bigtui
     description: Keyboard-first terminal workspace for querying BigQuery
     license: Apache-2.0

@@ -13,6 +13,19 @@ brew tap 0xjrr/bigtui
 brew install --cask bigtui
 ```
 
+### Scoop (Windows)
+
+```powershell
+scoop bucket add bigtui https://github.com/0xjrr/scoop-bigtui
+scoop install bigtui
+```
+
+### WinGet (Windows)
+
+```powershell
+winget install --id 0xjrr.bigtui
+```
+
 ### Debian or Ubuntu
 
 Download the `.deb` package for your architecture from the [release page](https://github.com/0xjrr/bigtui/releases/latest), then install it with:
@@ -29,6 +42,30 @@ Download the `.rpm` package for your architecture from the [release page](https:
 
 ```sh
 sudo dnf install ./bigtui_1.0.0_linux_amd64.rpm
+```
+
+For repository-based updates, add the bigtui RPM repository:
+
+```sh
+sudo tee /etc/yum.repos.d/bigtui.repo >/dev/null <<'EOF'
+[bigtui]
+name=bigtui
+baseurl=https://0xjrr.github.io/bigtui/rpm
+enabled=1
+gpgcheck=0
+EOF
+sudo dnf install bigtui
+```
+
+### APT repository
+
+```sh
+curl -fsSL https://0xjrr.github.io/bigtui/apt/bigtui-archive-keyring.asc \
+	| sudo tee /etc/apt/keyrings/bigtui.asc >/dev/null
+echo "deb [signed-by=/etc/apt/keyrings/bigtui.asc] https://0xjrr.github.io/bigtui/apt stable main" \
+	| sudo tee /etc/apt/sources.list.d/bigtui.list >/dev/null
+sudo apt update
+sudo apt install bigtui
 ```
 
 ### Release archives
