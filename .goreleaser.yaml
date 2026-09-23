@@ -1,0 +1,68 @@
+version: 2
+
+project_name: bigtui
+
+builds:
+  - id: bigtui
+    main: ./cmd/bigtui
+    binary: bigtui
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: binaries
+    ids:
+      - bigtui
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - NOTICE
+      - THIRD_PARTY_NOTICES
+
+checksum:
+  name_template: checksums.txt
+
+nfpms:
+  - id: linux-packages
+    package_name: bigtui
+    ids:
+      - bigtui
+    vendor: 0xjrr
+    homepage: https://github.com/0xjrr/bigtui
+    maintainer: 0xjrr
+    description: Keyboard-first terminal workspace for querying BigQuery
+    license: Apache-2.0
+    formats:
+      - deb
+      - rpm
+    contents:
+      - src: LICENSE
+        dst: /usr/share/doc/bigtui/LICENSE
+        type: doc
+      - src: NOTICE
+        dst: /usr/share/doc/bigtui/NOTICE
+        type: doc
+      - src: THIRD_PARTY_NOTICES
+        dst: /usr/share/doc/bigtui/THIRD_PARTY_NOTICES
+        type: doc
+
+homebrew_casks:
+  - ids:
+      - binaries
+    binaries:
+      - bigtui
+    repository:
+      owner: 0xjrr
+      name: homebrew-bigtui
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: https://github.com/0xjrr/bigtui
+    description: Keyboard-first terminal workspace for querying BigQuery
+    license: Apache-2.0
