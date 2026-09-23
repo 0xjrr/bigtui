@@ -2,6 +2,58 @@
 
 A keyboard-first terminal workspace for querying BigQuery across projects, built with Go and Charm.
 
+## Install
+
+The latest production release is [v1.0.0](https://github.com/0xjrr/bigtui/releases/latest). Release binaries are standalone; Go is not required to run them.
+
+### Homebrew
+
+```sh
+brew tap 0xjrr/bigtui
+brew install --cask bigtui
+```
+
+### Debian or Ubuntu
+
+Download the `.deb` package for your architecture from the [release page](https://github.com/0xjrr/bigtui/releases/latest), then install it with:
+
+```sh
+sudo apt install ./bigtui_1.0.0_linux_amd64.deb
+```
+
+For ARM64 systems, use the `linux_arm64` package instead.
+
+### Fedora, RHEL, or compatible systems
+
+Download the `.rpm` package for your architecture from the [release page](https://github.com/0xjrr/bigtui/releases/latest), then install it with:
+
+```sh
+sudo dnf install ./bigtui_1.0.0_linux_amd64.rpm
+```
+
+### Release archives
+
+Linux and macOS `.tar.gz` archives are available for AMD64 and ARM64. Extract the archive and place the binary on your `PATH`:
+
+```sh
+tar -xzf bigtui_1.0.0_linux_amd64.tar.gz
+sudo install -m 0755 bigtui /usr/local/bin/bigtui
+```
+
+Use the `darwin_amd64` archive for Intel Macs and `darwin_arm64` for Apple Silicon Macs.
+
+### Go
+
+Users with Go installed can install the command directly from the tagged module:
+
+```sh
+go install github.com/0xjrr/bigtui/cmd/bigtui@v1.0.0
+```
+
+Every release includes checksums in `checksums.txt`. Verify downloaded files with `sha256sum` before installing them.
+
+Regardless of installation method, bigtui requires Google Application Default Credentials and BigQuery access. The `gcloud` CLI is needed only when credentials have not already been configured.
+
 ## Run
 
 ```sh
@@ -20,13 +72,15 @@ go run ./cmd/bigtui --mock
 
 The fixture catalog contains sandbox projects with datasets. It is opt-in and is never used as the default project list.
 
-To create real BigQuery demo data in an accessible project, run the standalone seed utility:
+To create real BigQuery demo data in an accessible project during development, run the standalone seed utility:
 
 ```sh
 go run ./cmd/bigtui-seed --project YOUR_PROJECT_ID
 ```
 
 This creates or replaces the `bigtui_demo` dataset, `customers` and `orders` tables, and the `customer_order_totals` view. It is safe to rerun for that demo dataset, but it replaces those three named resources.
+
+The seed utility is a development tool and is not included in production release packages.
 
 ## Architecture
 
@@ -43,6 +97,19 @@ Completion providers implement `completion.Provider`, so an LSP client (such as 
 go test ./...
 go vet ./...
 ```
+
+## Release
+
+Releases are built by GoReleaser through GitHub Actions. To publish a new version:
+
+```sh
+go test ./...
+go vet ./...
+git tag -a v1.0.1 -m "Release v1.0.1"
+git push origin v1.0.1
+```
+
+Pushing a `v*` tag creates the GitHub Release and publishes standalone Linux/macOS archives, Linux `.deb` and `.rpm` packages, checksums, and the Homebrew Cask. The release configuration is in [.goreleaser.yaml](.goreleaser.yaml) and the workflow is in [.github/workflows/release.yml](.github/workflows/release.yml).
 
 ## License
 
